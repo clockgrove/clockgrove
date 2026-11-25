@@ -835,6 +835,15 @@ delivers three:
   with the run whose call caused it; the run inspector shows it and qualification measures it, so
   breaker state is no longer only the gateway's memory ([runs](../protocols/runs.md)).
 
-Still pending in later parts of issue 374: the §18 actor and conversation mute (G8) and the §17
-`continuously_eligible` process with budgets across a deployment (S16). Their rows stay deviations
-until then.
+Its second part delivers the fourth:
+
+- **§18 mute (G8).** An operator mutes an actor, or one conversation of it, with
+  `POST /v1/runtime/actor-mute` under `runtime:actor-govern`, apart from the inspector rate limit
+  and recorded change by change in `actor_mute_changes`. From its commit the actor or
+  conversation starts no turn (`409 conversation_muted`, no run, so no model call), no delivery
+  (`rejected`, `actor_muted`) and no effect (`refused`, `actor_muted`); withdrawn delivery consent
+  stops a held delivery the same way (`consent_required`)
+  ([context assembly](../protocols/context-assembly.md#operator-mute)).
+
+Still pending in the last part of issue 374: the §17 `continuously_eligible` process with budgets
+across a deployment (S16). Its row stays a deviation until then.

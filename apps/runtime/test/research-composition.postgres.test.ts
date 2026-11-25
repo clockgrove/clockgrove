@@ -733,6 +733,23 @@ it("governs encrypted queued research against malicious HTTP fixtures and reconc
       await sql(
         "UPDATE clockgrove.world_memberships SET revoked_at=NULL WHERE tenant_id='tenant-a'",
       );
+      // A conversation muted after its effect was admitted starts no effect (issue 374, G8): the
+      // queued dispatch finds the pending intent refused, and the tool is never called.
+      const muted = await prepare("muted-before-delivery");
+      await research.executeTool(participant, muted.fiber, muted.proposal, muted.call);
+      const mutedDispatch = queued.shift()!;
+      await sql(`INSERT INTO clockgrove.actor_mutes (tenant_id,world_id,timeline_id,actor_id,
+          session_id,muted,principal_id,version,changed_at)
+        VALUES ('tenant-a','world-a','timeline-a','actor','${muted.fiber.sessionId}',true,
+          'principal-a',1,statement_timestamp())`);
+      await research.consumer.consume(mutedDispatch, (value) => value);
+      expect(
+        await withAdmin((client) =>
+          new PostgreSqlEffects(client).read({ ...scope, effectId: muted.call.effectId }),
+        ),
+      ).toMatchObject({ disposition: "refused", outcomeCode: "actor_muted", attemptId: null });
+      expect(calls).not.toContain("muted-before-delivery");
+      await sql("DELETE FROM clockgrove.actor_mutes");
       await sql(`UPDATE clockgrove.mcp_installations SET reviews=jsonb_set(reviews,'{lookup,effectClass}','"external-write"') WHERE installation_id='fixture';
         UPDATE clockgrove.mcp_bindings SET binding=jsonb_set(binding,'{constraints,effectClasses}','["external-write"]') WHERE binding_id='research-binding'`);
       for (const q of ["approved-write-canary", "echo"]) {

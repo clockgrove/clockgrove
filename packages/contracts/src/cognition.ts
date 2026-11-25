@@ -294,6 +294,40 @@ export function decodeDocumentReadRequest(value: unknown): DocumentReadRequest {
   });
 }
 
+/**
+ * An operator's mute of an actor (`sessionId: null`) or of one conversation of it, under
+ * `runtime:actor-govern` (issue 374, G8). `muted: false` lifts it. While it holds, the actor or
+ * conversation starts no turn, delivery or effect.
+ */
+export interface ActorMuteRequest {
+  readonly scope: BrowserScope;
+  readonly actorId: ObjectId;
+  readonly sessionId: string | null;
+  readonly muted: boolean;
+}
+
+/** The mute as it now stands: its version counts every change, and names who made the last. */
+export interface ActorMuteView {
+  readonly actorId: string;
+  readonly sessionId: string | null;
+  readonly muted: boolean;
+  readonly version: number;
+  readonly changedBy: string;
+  readonly changedAt: string;
+}
+
+export function decodeActorMuteRequest(value: unknown): ActorMuteRequest {
+  const path = "muteActor";
+  const { v, scope } = scoped(value, path, ["actorId", "sessionId", "muted"], []);
+  if (typeof v.muted !== "boolean") throw new ContractDecodeError(`${path}.muted`, "boolean");
+  return freeze({
+    scope,
+    actorId: decodeOpaqueId(v.actorId, "ObjectId", `${path}.actorId`),
+    sessionId: v.sessionId === null ? null : boundedId(v.sessionId, `${path}.sessionId`, 1024),
+    muted: v.muted,
+  });
+}
+
 /** Exactly one entry: `runId`, or `sessionId` with `turn`. */
 export function decodeContextInspectRequest(value: unknown): ContextInspectRequest {
   const path = "inspectContext";

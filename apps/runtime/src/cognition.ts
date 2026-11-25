@@ -5,6 +5,8 @@ import {
   type RuntimeAuthorizationDenial,
 } from "@clockgrove/application";
 import type {
+  ActorMuteRequest,
+  ActorMuteView,
   BrowserScope,
   ContextInspection,
   ContextInspectRequest,
@@ -16,9 +18,12 @@ import type {
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
 import {
+  ActorMuteRefusedError,
+  ActorMuteTargetNotFoundError,
   type DocumentChangeOutcome,
   type InspectorAccess,
   PostgreSqlActorDocuments,
+  PostgreSqlActorMutes,
   type PostgreSqlClient,
   PostgreSqlContextManifests,
   PostgreSqlConversationStore,
@@ -33,6 +38,7 @@ export const COGNITION_ROUTES = [
   "/v1/runtime/context/inspect",
   "/v1/runtime/actor-documents/change",
   "/v1/runtime/actor-documents/read",
+  "/v1/runtime/actor-mute",
 ] as const;
 
 /**
@@ -57,7 +63,7 @@ export class DocumentNotFoundError extends Error {
   }
 }
 
-type Subject = "context-manifest" | "actor-documents";
+type Subject = "context-manifest" | "actor-documents" | "actor-mute";
 
 /**
  * Context manifests and governed documents for inspectors and operators. Each read or change is
@@ -66,6 +72,7 @@ type Subject = "context-manifest" | "actor-documents";
 export class PostgreSqlCognitionInspector {
   private readonly audit: PostgreSqlInspectorAudit;
   private readonly documents: PostgreSqlActorDocuments;
+  private readonly mutes: PostgreSqlActorMutes;
   private readonly manifests: PostgreSqlContextManifests;
   private readonly conversations: PostgreSqlConversationStore;
   constructor(
@@ -74,6 +81,7 @@ export class PostgreSqlCognitionInspector {
   ) {
     this.audit = new PostgreSqlInspectorAudit(client);
     this.documents = new PostgreSqlActorDocuments(client);
+    this.mutes = new PostgreSqlActorMutes(client);
     this.manifests = new PostgreSqlContextManifests(client);
     this.conversations = new PostgreSqlConversationStore(client, artifacts);
   }
@@ -162,6 +170,43 @@ export class PostgreSqlCognitionInspector {
     );
   }
 
+  /**
+   * An operator mutes or unmutes an actor or one conversation of it (issue 374, G8), under the
+   * change set's grant and ceiling (`runtime:actor-govern`, `private_cognition`). It takes effect
+   * at its commit: every later start of a turn, delivery or effect reads it. It is admitted and
+   * recorded by its own change log (`actor_mute_changes`), not the inspector budget, so reading
+   * inspectors never holds a mute back; a refusal is audited in `inspector_accesses`.
+   */
+  async muteActor(
+    input: ActorMuteRequest,
+    context: TrustedExecutionContext,
+  ): Promise<ActorMuteView> {
+    try {
+      assertWorldCommandContext(context, input.scope, GOVERN_GRANT);
+      if (!context.privacyCeiling.allowedCategories.includes("private_cognition"))
+        throw new AuthorizationRefusedError("actor-mute ceiling refused");
+    } catch (error) {
+      await this.deny(input, "actor-mute", context.principalId, undefined);
+      throw error;
+    }
+    try {
+      return await this.mutes.set(
+        worldAuthorization(context),
+        input.scope,
+        input.actorId,
+        input.sessionId,
+        input.muted,
+      );
+    } catch (error) {
+      // The database holds the caller to a live actor-govern membership of the space too.
+      if (error instanceof ActorMuteRefusedError) {
+        await this.deny(input, "actor-mute", context.principalId, undefined);
+        throw new AuthorizationRefusedError("actor mute refused");
+      }
+      throw error;
+    }
+  }
+
   /** Records a refused access under the requested tenant, whether or not the principal is a member. */
   deny(
     input: { readonly scope: BrowserScope },
@@ -219,3 +264,5 @@ function access(
 }
 
 export type CognitionChangeOutcome = DocumentChangeOutcome;
+
+export { ActorMuteTargetNotFoundError };

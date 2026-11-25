@@ -1,4 +1,5 @@
 import type { QueueEnvelope } from "@clockgrove/contracts";
+import { ACTOR_MUTED } from "./postgres-actor-mutes.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
 export interface EffectAddress {
@@ -313,6 +314,20 @@ export class PostgreSqlEffects {
     return this.transaction(async () => {
       const disposition = await this.lock(values);
       if (disposition !== "pending") return { claimed: false, effect: await this.recorded(values) };
+      // A muted actor or conversation starts no effect (issue 374, G8): the pending intent is
+      // recorded refused, so no attempt is ever made and every claimant sees the same outcome.
+      const muted = await this.client.query(
+        "SELECT clockgrove.effect_muted($1,$2,$3,$4) AS muted",
+        values,
+      );
+      if ((muted.rows[0] as { muted?: boolean } | undefined)?.muted === true) {
+        await this.client.query(
+          `UPDATE clockgrove.effect_intents SET disposition='refused',outcome_code='${ACTOR_MUTED}',
+            ended_at=statement_timestamp() WHERE ${predicate}`,
+          values,
+        );
+        return { claimed: false, effect: await this.recorded(values) };
+      }
       await this.client.query(
         `UPDATE clockgrove.effect_intents SET disposition='started' WHERE ${predicate}`,
         values,

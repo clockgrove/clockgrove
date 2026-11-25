@@ -354,7 +354,9 @@ export type ConversationRefusalCode =
   | "message_id_reused"
   | "conversation_busy"
   | "turn_not_found"
-  | "turn_cancelled";
+  | "turn_cancelled"
+  /** An operator muted the actor or this conversation: no turn starts (issue 374, G8). */
+  | "conversation_muted";
 
 /** A refused conversation call; nothing was changed. */
 export class ConversationRefusedError extends Error {

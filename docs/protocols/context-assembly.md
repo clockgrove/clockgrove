@@ -67,6 +67,41 @@ every writer:
 So a path a model returns can never select a protected or governed target, whatever the
 application does.
 
+### Operator mute
+
+`POST /v1/runtime/actor-mute` (issue 374, G8) takes version 1, the flat authorized scope, `actorId`,
+`sessionId` (a conversation of that actor, or `null` for the whole actor) and `muted`. It needs the
+change set's authority: the `runtime:actor-govern` grant and a `private_cognition` ceiling. It
+answers the mute as it now stands, `{ actorId, sessionId, muted, version, changedBy, changedAt }`;
+`version` counts every change. An actor with no conversation session in the world timeline, or a
+session that is not the actor's, answers `404 conversation_not_found`; a caller without the grant
+`403 authorization_refused`. An unmute of what was never muted changes nothing and answers
+`muted: false` with `version: 0`.
+
+The mute is not held to the inspector rate limit, so an operator who has spent it reading
+inspectors during an incident can still mute at once. Each change is appended to
+`actor_mute_changes` in its transaction: the principal, the actor, the session (empty for the whole
+actor), muted or unmuted, the version and the time. That log has its own budget, 300 changes per
+principal per hour (`429 inspection_rate_limited` beyond it), and the operator action audit's
+90-day retention. A refused request is audited in `inspector_accesses` as `actor-mute`.
+
+A mute takes effect when it commits (`actor_mutes`, migration 0078). Each start reads it in its own
+transaction through `clockgrove.actor_muted`, so nothing waits for a model call:
+
+- **Turns.** A muted actor or conversation accepts no Talk, and no wake, and claims no turn that was
+  accepted before the mute: Talk answers `409 conversation_muted`, and a wake settles with that
+  outcome. No run opens, so no model is called. An accepted turn stays open and resumes once
+  unmuted. A turn already inside its model call when the mute lands is not interrupted; its
+  delivery and effects are stopped as below.
+- **Deliveries.** A new or held delivery is recorded `rejected` with reason `actor_muted`, and
+  nothing is sent. A wake session is muted with the conversation it wakes.
+- **Effects.** A pending effect of a muted actor, or of a run in a muted conversation, is recorded
+  `refused` with `actor_muted` instead of being claimed, on every claim path, so its tool is never
+  called.
+
+`muted: false` lifts the mute. Withdrawn delivery consent stops held deliveries the same way: they
+are `rejected` with `consent_required` when next checked ([channels](channels.md)).
+
 ### Proposers
 
 - **Operator:** `POST /v1/runtime/actor-documents/change` needs the `runtime:actor-govern` grant,

@@ -60,6 +60,7 @@ import {
   PostgreSqlActorDocuments,
   PostgreSqlContextManifests,
 } from "./postgres-actor-documents.js";
+import { actorMuted } from "./postgres-actor-mutes.js";
 import { PostgreSqlGovernedDelivery } from "./postgres-deliveries.js";
 import {
   NO_CALL_USAGE,
@@ -468,6 +469,15 @@ export class PostgreSqlConversationStore implements ConversationStore {
       if (Number(stored.row.message_count) + 2 > this.messageLimit)
         throw new ConversationRefusedError("conversation_full");
     }
+    // A muted actor or conversation starts no turn (issue 374, G8): checked before anything is
+    // written or any model is asked; a receipt already committed is still answered above.
+    if (
+      receipt === undefined &&
+      (await this.transaction(participant, () =>
+        actorMuted(this.client, scope, String(stored.row.actor_id), sessionId),
+      ))
+    )
+      throw new ConversationRefusedError("conversation_muted");
     // Compare the complete normalized metadata before returning even an already committed receipt.
     await this.put(
       participant,
@@ -528,11 +538,22 @@ export class PostgreSqlConversationStore implements ConversationStore {
     const stored = await this.stored(participant, fiber.scope, fiber.sessionId);
     // A turn that already committed only finalizes: it needs no new attempt.
     const needsRun = fiber.phase !== "finalizing";
+    // Checked again under the fiber's lock below; this one stores no prompt for a muted turn.
+    if (
+      await this.transaction(participant, () =>
+        actorMuted(this.client, fiber.scope, fiber.actorId, fiber.sessionId),
+      )
+    )
+      throw new ConversationRefusedError("conversation_muted");
     const start = needsRun ? await this.prepareRun(participant, stored, fiber) : undefined;
     try {
       return await this.transaction(participant, async () => {
         const current = await this.lockedFiber(fiber);
         if (current === undefined || TERMINAL_TURN_PHASES.includes(current.phase)) return undefined;
+        // A turn accepted before a mute is not claimed while it holds; it stays open and resumes
+        // once the actor or conversation is unmuted. Its previous attempt's run is left as it was.
+        if (await actorMuted(this.client, fiber.scope, current.actorId, fiber.sessionId))
+          throw new ConversationRefusedError("conversation_muted");
         if (current.runId !== null)
           await this.runs.close(fiber.scope.tenantId, current.runId, "abandoned", "owner_lost");
         if (start !== undefined) {

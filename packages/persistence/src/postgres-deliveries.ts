@@ -11,10 +11,12 @@ import {
 } from "@clockgrove/application";
 import type {
   DeliveryConsent,
+  DeliveryDecision,
   DeliveryReceipt,
   DeliveryRequested,
   DeliveryResult,
 } from "@clockgrove/contracts";
+import { ACTOR_MUTED, actorMuted } from "./postgres-actor-mutes.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
 type Row = Record<string, unknown>;
@@ -249,14 +251,17 @@ export class PostgreSqlGovernedDelivery implements GovernedDeliveryPort {
       ],
     );
     const reserved = Number((inserted.rows[0] as Row).reserved_units);
-    const decision =
+    const decision: DeliveryDecision =
       reserved === 0
         ? {
             status: "rejected" as const,
             reason: "budget_exhausted" as const,
             effectiveUrgency: r.urgency,
           }
-        : evaluateDeliveryPolicy(r, consent, now);
+        : // A muted actor or conversation starts no delivery (issue 374, G8).
+          (await actorMuted(this.client, t.scope, t.actorId, t.sessionId))
+          ? { status: "rejected", reason: ACTOR_MUTED, effectiveUrgency: r.urgency }
+          : evaluateDeliveryPolicy(r, consent, now);
     const receipt: DeliveryReceipt = {
       ...decision,
       request: r,
@@ -492,11 +497,19 @@ export class PostgreSqlGovernedDelivery implements GovernedDeliveryPort {
         key(a, t),
       );
       const now = this.instant();
-      const decision = evaluateDeliveryPolicy(
-        old.request,
-        c.rows[0] ? consentOf(c.rows[0] as Row) : undefined,
-        now,
-      );
+      // A held delivery of a muted actor or conversation is rejected, not sent, when it comes due.
+      const decision: DeliveryDecision = (await actorMuted(
+        this.client,
+        t.scope,
+        t.actorId,
+        t.sessionId,
+      ))
+        ? { status: "rejected", reason: ACTOR_MUTED, effectiveUrgency: old.request.urgency }
+        : evaluateDeliveryPolicy(
+            old.request,
+            c.rows[0] ? consentOf(c.rows[0] as Row) : undefined,
+            now,
+          );
       if (decision.status === "delayed") return old;
       const receipt: DeliveryReceipt = {
         ...old,

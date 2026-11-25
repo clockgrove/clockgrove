@@ -143,3 +143,13 @@ BEGIN
   END LOOP;
 END;
 $$;
+
+-- A muted actor of tenant-b (0078), so authorization.sql proves actor_muted answers nothing about
+-- another tenant's mute rather than about an empty table.
+INSERT INTO clockgrove.actor_mutes (
+  tenant_id, world_id, timeline_id, actor_id, session_id, muted, principal_id, version, changed_at
+) VALUES ('tenant-b', 'world-b', 'timeline-b', 'muted-b', '', true, 'principal-b', 1, now());
+INSERT INTO clockgrove.actor_mute_changes (
+  tenant_id, world_id, timeline_id, space_id, actor_id, session_id, muted, version, principal_id,
+  changed_at
+) VALUES ('tenant-b', 'world-b', 'timeline-b', 'space-b', 'muted-b', '', true, 1, 'principal-b', now());
