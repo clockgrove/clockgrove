@@ -75,12 +75,46 @@ BEGIN
   RETURN stored;
 END $$;
 
+-- A shadow record's `usage` is the runtime's claim, so only a conforming value becomes a quantity:
+-- a count is a JSON non-negative integer no larger than 2^53 - 1, and `calls` is 0 or 1. Anything
+-- else (a negative, a fraction, a string, `calls: 7`, a `usage` that is no object) is unknown,
+-- null, never a number. `finish_moderation_shadow` refuses such a record; `finish_wake_triage`
+-- (0041) checks only its size, so this is the rule for both.
+CREATE FUNCTION clockgrove.shadow_usage_quantities(decision jsonb) RETURNS jsonb
+LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog, clockgrove AS $$
+DECLARE
+  usage jsonb := CASE WHEN jsonb_typeof(decision->'usage') = 'object' THEN decision->'usage'
+    ELSE '{}'::jsonb END;
+  counts jsonb := '{}'::jsonb;
+  name text;
+  value jsonb;
+  absent jsonb;
+BEGIN
+  FOREACH name IN ARRAY ARRAY['calls', 'inputTokens', 'outputTokens'] LOOP
+    value := usage->name;
+    IF (jsonb_typeof(value) IS DISTINCT FROM 'number' OR value#>>'{}' !~ '^[0-9]+$'
+      OR (CASE WHEN value#>>'{}' ~ '^[0-9]+$' THEN (value#>>'{}')::numeric > 9007199254740991
+        ELSE false END)
+      OR (name = 'calls' AND value NOT IN ('0'::jsonb, '1'::jsonb))) THEN
+      value := 'null'::jsonb;
+    END IF;
+    counts := counts || jsonb_build_object(name, value);
+  END LOOP;
+  absent := CASE WHEN counts->'calls' = '0'::jsonb THEN '0'::jsonb ELSE 'null'::jsonb END;
+  RETURN jsonb_build_object(
+    'inputTokens', counts->'inputTokens', 'cachedInputTokens', absent,
+    'cacheWriteInputTokens', absent, 'outputTokens', counts->'outputTokens',
+    'reasoningTokens', absent, 'calls', counts->'calls');
+END;
+$$;
+REVOKE ALL ON FUNCTION clockgrove.shadow_usage_quantities(jsonb) FROM PUBLIC;
+
 -- One event per shadow decision whose record is finished: the model call a wake triage or a
--- moderation shadow made outside any run. Its quantities are the record's `usage`: `calls` 1 when
--- the call was sent to the provider, 0 when it was refused before (then its tokens are 0), and
--- null when unknown (an interrupted decision whose earlier owner may have called). The decisions
--- endpoint reports no cache or reasoning tokens: unknown, or 0 without a call. A record without
--- `usage` reports nothing known. The source and the event id's prefix are the table's name.
+-- moderation shadow made outside any run. Its quantities are the record's conforming `usage`:
+-- `calls` 1 when the call was sent to the provider, 0 when it was refused before (then its tokens
+-- are 0), and null when unknown (an interrupted decision whose earlier owner may have called). The
+-- decisions endpoint reports no cache or reasoning tokens: unknown, or 0 without a call. A record
+-- without `usage` reports nothing known. The source and the event id's prefix are the table's name.
 CREATE FUNCTION clockgrove.record_shadow_usage() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, clockgrove AS $$
 BEGIN
@@ -100,17 +134,7 @@ BEGIN
     (SELECT f.persona_id FROM clockgrove.conversation_turn_fibers f
       WHERE f.tenant_id = NEW.tenant_id AND f.session_id = NEW.session_id
         AND f.message_id = NEW.message_id),
-    NEW.actor_id, NEW.session_id,
-    jsonb_build_object(
-      'inputTokens', coalesce(NEW.record->'usage'->'inputTokens', 'null'::jsonb),
-      'cachedInputTokens', CASE WHEN NEW.record->'usage'->'calls' = '0'::jsonb THEN '0'::jsonb
-        ELSE 'null'::jsonb END,
-      'cacheWriteInputTokens', CASE WHEN NEW.record->'usage'->'calls' = '0'::jsonb THEN '0'::jsonb
-        ELSE 'null'::jsonb END,
-      'outputTokens', coalesce(NEW.record->'usage'->'outputTokens', 'null'::jsonb),
-      'reasoningTokens', CASE WHEN NEW.record->'usage'->'calls' = '0'::jsonb THEN '0'::jsonb
-        ELSE 'null'::jsonb END,
-      'calls', coalesce(NEW.record->'usage'->'calls', 'null'::jsonb)),
+    NEW.actor_id, NEW.session_id, clockgrove.shadow_usage_quantities(NEW.record),
     statement_timestamp(), NEW.simulation_time
   ) ON CONFLICT (tenant_id, event_id) DO NOTHING;
   RETURN NULL;
