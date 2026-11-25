@@ -66,6 +66,17 @@ the region's `traffic` zones at the entry instant and, when anything, attaches i
 `surfaces` field. A walk therefore wears a path, or tracks mud from one region onto the next, with
 exactly the entry events the route already implies and no event per step.
 
+## Notices
+
+The same funnel asks `planSurfaceNotices` what the entering object perceives, from the state before
+the entry's traffic applies, and attaches it as an optional `notices` field on the
+`movement.region-entered`, only when non-empty. A zone's band is a standing signal to the
+modalities the band and the observer's archetype share, so a scratched post is noticed by sight,
+or a muddy yard by smell, on entering, journaled like any other event, with no event of its own and
+no state. A zone on an object is noticed only while that object stands in the region, in the
+observer's space and not put inside a container. Once the zone heals below the signalling band, a
+new entry carries no notice.
+
 ## Carried matter on death
 
 When an actor dies holding carried matter, one `surface.carried-drained` with `cause: "died"`
@@ -84,8 +95,8 @@ the same budget passes the death exactly as one unbounded call does.
 - `surface.journaled@1` replays every `surface.*` event a command emits from the policy and the
   prior state: each interaction and repair must equal its plan, and each crossing must be due at its
   instant with the planned payload. Every `movement.region-entered` must carry exactly the
-  planned traffic (or none), and every `weather.changed` or `weather.transitioned` exactly the
-  planned rain settlement (or none). A drain must remove exactly the actor's rows and follow its death at
+  planned traffic and the planned notices (or none of either), and every `weather.changed` or
+  `weather.transitioned` exactly the planned rain settlement (or none). A drain must remove exactly the actor's rows and follow its death at
   the same instant, and a death of an actor holding matter must be followed by its drain. A forged,
   missing or reordered surface effect is `invariant-violated` at `events[i]`.
 
@@ -95,11 +106,12 @@ every refusal above (reach for an object host in another space and for a ground 
 stands outside, and a retired host), a scratch on a ground-region zone, healing in every advance
 shape, rain and growth healing at hand-computed instants in every advance shape, rain healing under a
 dry and a wet `world.weather.set` override with a crossing at the hold's end, a walk that wears
-a porch and tracks mud onto it, the drain of a dying actor's mud, carried-matter conservation,
+a porch and tracks mud onto it, another actor's scratch on a post noticed by sight or by smell on entering
+(the band's first modality the observer shares named), and not once healed, by an actor without
+that sense, or with the post in a container or another space, the drain of a dying actor's mud, carried-matter conservation,
 repair, the budget refusal and scenario decoding.
 
 ## Not yet here
 
-Perception of a zone's state as a standing signal, the why path from a zone to its cause, the
-presentation binding, and the runtime's owner repair route are later parts of issue #267. No
-`surface.*` event is perceivable yet.
+The why path from a zone to its cause, the presentation binding, and the runtime's owner repair
+route are later parts of issue #267.
