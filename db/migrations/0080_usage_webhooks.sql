@@ -117,7 +117,8 @@ ALTER TABLE clockgrove.inspector_accesses
   ADD CONSTRAINT inspector_accesses_subject_check CHECK (
     subject IN (
       'causal-chain', 'runtime-state', 'event', 'scheduled-action', 'client-view', 'agent-runs',
-      'context-manifest', 'actor-documents', 'usage-events', 'usage-webhook'
+      'context-manifest', 'actor-documents', 'usage-events', 'actor-mute',
+      'usage-webhook'
     )
   ),
   ADD CONSTRAINT inspector_accesses_subject_entry
