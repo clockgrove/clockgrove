@@ -68,7 +68,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         await client.connect(transport);
         const catalog = (await client.listTools()).tools;
         expect(
-          catalog.slice(6).map(({ name, annotations }) => [name, annotations?.readOnlyHint]),
+          catalog.slice(8).map(({ name, annotations }) => [name, annotations?.readOnlyHint]),
         ).toEqual([
           ["runtime_state", true],
           ["runtime_action", false],

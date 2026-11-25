@@ -62,7 +62,9 @@ describe("production world-reactions native Queue lifecycle", () => {
         const pending = owner.submit(command);
         const sleeping =
           "SELECT count(*) FROM pg_stat_activity WHERE usename='clockgrove_runtime' AND wait_event='PgSleep'";
-        await waitForOwnerSql(sql, sleeping, "1");
+        // The first command after start-up can take seconds to reach its UPDATE on a loaded
+        // runner; the paused UPDATE then holds its sleep, which a 10ms poll cannot miss.
+        await waitForOwnerSql(sql, sleeping, "1", 1000);
         expect(await dispatchValue("queue-first", "count(*)")).toBe("0");
         expect((await pending).status).toBe(200);
         await sql(
@@ -219,7 +221,7 @@ describe("production world-reactions native Queue lifecycle", () => {
         );
         expect(await advance("queue-lost-hint", 600_000n)).toBe(200);
         // The command returned while its hint is still blocked in the claim: it never awaits it.
-        await waitForOwnerSql(sql, sleeping, "1");
+        await waitForOwnerSql(sql, sleeping, "1", 1000);
         expect(await sweepFailures(2)).toEqual(["hint:transient", "hint:transient"]);
         // A failing principal is logged and counted; the scheduled run itself still succeeds.
         expect(await owner.reconcileDispatches()).toEqual({ outcome: "ok", noRetry: false });

@@ -31,7 +31,7 @@ Clockgrove is an engine you deploy yourself, not a hosted service. The unit of d
 | Keep a world's history in PostgreSQL and replay it | `packages/persistence`, `db/migrations` | Built |
 | Run a world on the actor runtime (Cloudflare Workers; workerd locally) | `apps/runtime` | Built locally; hosted qualification pending |
 | Watch a world in a browser and ask why something happened | `apps/web`, `pnpm dev:world` | Wave 4, underway |
-| Try a world pack locally as its owner, in the neutral playground or with your own pack | `pnpm playground`, `worlds/playground` | Underway (#327): the local host and its pack panel; the world debugger and coding-agent chat follow |
+| Try a world pack locally as its owner, in the neutral playground or with your own pack | `pnpm playground`, `worlds/playground` | Local host, pack panel, owner-only world debugger and coding-agent access over MCP (#327); the optional cloud check follows the world-scope deploy tooling (#402) |
 | Talk with inhabitants and connect tools over MCP | `apps/runtime`, `packages/model-gateway` | Wave 5, in progress; not in the local world below |
 | Memory and learning, authoring through preview timelines, the Raccoon World demo, hosted and shared worlds | See the wave plans | Planned, Waves 6 to 12 |
 
@@ -133,7 +133,7 @@ pnpm playground
 pnpm playground --pack path/to/your-pack   # your own pack, as a fresh world from its declared seed
 ```
 
-It prints the URL and the owner credential, `playground-owner`. The [development reference](docs/runbooks/development.md#playground) has the details.
+It prints the URL, the owner credential, `playground-owner`, and the world's MCP URL and token for your coding agent (Claude Code, Codex or Copilot), which can then answer why something happened from the world's own evidence, with links into the owner-only **World debugger** beside the scene. The [development reference](docs/runbooks/development.md#playground) has the details.
 
 <img src="tests/visual/dusk-rain-high@1280x720.png" width="640" alt="The web client showing the fixture world at dusk in heavy rain: a clock and weather bar, a scene of placeholder shapes, and a feed of events such as a water bowl collecting rain">
 

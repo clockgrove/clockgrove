@@ -1,11 +1,13 @@
 import {
   decodeEntitySelectionRequest,
   decodeObservationRequest,
+  decodeRecordedWhyRequest,
   decodeRunInspectRequest,
   decodeRunSearchRequest,
   decodeWorldDirectoryRequest,
 } from "@clockgrove/contracts";
 import { decodeCausalChainInput } from "./inspector.js";
+import { decodeJournalInput } from "./journal-inspector.js";
 
 // Engineering decision for metadata reads: bound serialized arguments at 64 KiB in addition to
 // each application's strict decoder. This is not an MCP protocol limit.
@@ -18,6 +20,8 @@ export const WORLD_MCP_READ_TOOLS = [
   "command_receipt",
   "run_receipt",
   "run_search",
+  "world_journal",
+  "event_why",
 ] as const;
 export type WorldMcpReadTool = (typeof WORLD_MCP_READ_TOOLS)[number];
 
@@ -59,7 +63,39 @@ const reads: Readonly<
   },
   run_receipt: { path: "/v1/runtime/runs/inspect", decode: decodeRunInspectRequest },
   run_search: { path: "/v1/runtime/runs/search", decode: decodeRunSearchRequest },
+  world_journal: { path: "/v1/runtime/journal", decode: decodeJournalInput },
+  event_why: { path: "/v1/runtime/why", decode: decodeRecordedWhyRequest },
 };
+
+/** Path into the owner-only world debugger for a tool call, or undefined when it is not one world. */
+export function worldDebuggerLink(name: WorldMcpReadTool, args: unknown): string | undefined {
+  if (name === "world_directory") return undefined;
+  const a = args as Record<string, unknown>;
+  const path = ["worlds", a.tenantId, a.worldId, a.timelineId, a.spaceId]
+    .map((part) => encodeURIComponent(String(part)))
+    .join("/");
+  const query = (params: Record<string, unknown>): string =>
+    `/${path}?${new URLSearchParams(Object.entries(params).map(([k, v]): [string, string] => [k, String(v)]))}`;
+  switch (name) {
+    case "world_status":
+      return `/${path}?debugger`;
+    case "world_journal":
+    case "command_receipt":
+      return query({ debugger: "journal" });
+    case "event_why":
+      return typeof a.eventId === "string"
+        ? query({ debugger: "journal", event: a.eventId })
+        : query({ debugger: "journal" });
+    case "entity_inspect":
+      return query({ debugger: "actors", actor: a.objectId });
+    case "run_search":
+      return query({ debugger: "runs" });
+    case "run_receipt":
+      return typeof a.runId === "string"
+        ? query({ debugger: "runs", run: a.runId })
+        : query({ debugger: "runs" });
+  }
+}
 
 /** An internal tool adapter, with fresh credentials on every call and no retained connection state. */
 export async function readWorldMcpTool(

@@ -60,16 +60,23 @@ const PLAYGROUND_BODY_LIMIT = 64 * 1024;
  * minute spends at most 60 of those, however often the panel polls.
  */
 const PLAYGROUND_AUTHORIZED_MS = 60_000;
+/**
+ * The runtime's configured origin in the harness (`AUTH_ORIGIN`, native-harness.ts). Its MCP endpoint
+ * answers only requests addressed to it, so the session forwards `/mcp` there (issue 327).
+ */
+const RUNTIME_ORIGIN = "https://auth.example.test";
+/** Twice the MCP endpoint's own 128 KiB request bound, which then refuses anything past its own. */
+const MCP_BODY_LIMIT = 256 * 1024;
 /** Names the file whose existence asks the session to stop; scripts/dev-world.mjs sets it. */
 const STOP_VARIABLE = "CLOCKGROVE_DEV_WORLD_STOP";
 
 /** Reads a request body, or null past the limit. */
-async function readBody(request) {
+async function readBody(request, limit = PLAYGROUND_BODY_LIMIT) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > PLAYGROUND_BODY_LIMIT) return null;
+    if (size > limit) return null;
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
@@ -138,6 +145,59 @@ function playgroundHandler(native) {
   };
 }
 
+/**
+ * The playground's MCP server (issue 327): exactly `/mcp` on the session's loopback Vite server,
+ * forwarded to the runtime's existing first-party endpoint, which authenticates every exchange and
+ * reads under the caller's own grants. The web's `/mcp/tokens` and `/mcp/consent` stay the web's.
+ */
+function mcpHandler(native) {
+  return async (request, response, next) => {
+    if (request.url !== "/" && !request.url.startsWith("/?")) return next();
+    const body = await readBody(request, MCP_BODY_LIMIT);
+    if (body === null) return reply(response, 413, { error: "too_large" });
+    try {
+      const headers = Object.entries(request.headers).filter(
+        ([name]) => !["host", "connection", "content-length"].includes(name),
+      );
+      const answer = await native.fetch(
+        new Request(`${RUNTIME_ORIGIN}/mcp`, {
+          method: request.method,
+          headers: headers.map(([name, value]) => [name, String(value)]),
+          ...(["GET", "HEAD"].includes(request.method) ? {} : { body }),
+        }),
+      );
+      const passed = [...answer.headers].filter(
+        ([name]) => !["content-length", "content-encoding", "transfer-encoding"].includes(name),
+      );
+      response.writeHead(answer.status, Object.fromEntries(passed));
+      response.end(Buffer.from(await answer.arrayBuffer()));
+    } catch {
+      reply(response, 502, { error: "mcp_unavailable" });
+    }
+  };
+}
+
+/**
+ * Issues the owner a member token for their coding agent through the existing member-key route,
+ * under the owner's own session credential: it carries no grant of its own, and it lives in the
+ * temporary database, so it goes with the world.
+ */
+async function ownerMcpToken(native) {
+  const answer = await native.fetch(
+    new Request(`${RUNTIME_ORIGIN}/api/auth/api-key/create`, {
+      method: "POST",
+      headers: {
+        origin: RUNTIME_ORIGIN,
+        authorization: `Bearer ${CREDENTIAL}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ name: "Playground coding agent" }),
+    }),
+  );
+  if (answer.status !== 200) throw new Error(`MCP token refused: ${answer.status}`);
+  return (await answer.json()).key;
+}
+
 /** Resolves when the launcher asks to stop (checked every 500 ms) or the session bound passes. */
 async function stopped() {
   const stopFile = process.env[STOP_VARIABLE];
@@ -161,44 +221,55 @@ it("serves the living hall", async () => {
     });
     return;
   }
-  await withNativeWorldOwner(async (native) => {
-    // A pack without a shell.json of its own is shown in the neutral shell.
-    const packShell = path.resolve(root, "worlds", pack, "shell.json");
-    if (existsSync(packShell)) process.env.CLOCKGROVE_WORLD_SHELL ??= packShell;
-    const server = await createServer({
-      root: path.join(root, "apps/web"),
-      configFile: path.join(root, "apps/web/vite.config.ts"),
-      // Inline plugins are added to those of the config file. The preferred port 5173 moves to the
-      // next free one (strictPort is off), so a second session can run beside the first.
-      plugins:
-        PLAYGROUND_HOST === undefined
-          ? []
-          : [
-              {
-                name: "clockgrove-playground",
-                configureServer(vite) {
-                  vite.middlewares.use("/playground/v1", playgroundHandler(native));
+  // The owner's world also serves the runtime's MCP endpoint, which needs its credential writer.
+  await withNativeWorldOwner(
+    async (native) => {
+      // A pack without a shell.json of its own is shown in the neutral shell.
+      const packShell = path.resolve(root, "worlds", pack, "shell.json");
+      if (existsSync(packShell)) process.env.CLOCKGROVE_WORLD_SHELL ??= packShell;
+      const server = await createServer({
+        root: path.join(root, "apps/web"),
+        configFile: path.join(root, "apps/web/vite.config.ts"),
+        // Inline plugins are added to those of the config file. The preferred port 5173 moves to the
+        // next free one (strictPort is off), so a second session can run beside the first.
+        plugins:
+          PLAYGROUND_HOST === undefined
+            ? []
+            : [
+                {
+                  name: "clockgrove-playground",
+                  configureServer(vite) {
+                    vite.middlewares.use("/playground/v1", playgroundHandler(native));
+                    vite.middlewares.use("/mcp", mcpHandler(native));
+                  },
                 },
-              },
-            ],
-      server: {
-        host: "127.0.0.1",
-        port: 5173,
-        proxy: { "/v1": { target: await native.origin(), ws: true } },
-      },
-    });
-    try {
-      await server.listen();
-      const { port } = server.httpServer.address();
-      process.stdout.write(
-        `\n${OWNER ? "Playground" : "Living world"}: ${native.world.artifact.packId}@${native.world.artifact.version} (${native.scope.worldId} / ${native.scope.spaceId})\n` +
-          `  Open:    http://127.0.0.1:${port}${worldRoutePath(native.scope)}\n` +
-          `  Sign in: local session credential "${CREDENTIAL}" (${OWNER ? "the world's owner" : "observation only"})\n` +
-          `  Stop:    Ctrl-C; the database and runtime storage are temporary and removed on exit.\n\n`,
-      );
-      await stopped();
-    } finally {
-      await server.close();
-    }
-  });
+              ],
+        server: {
+          host: "127.0.0.1",
+          port: 5173,
+          proxy: { "/v1": { target: await native.origin(), ws: true } },
+        },
+      });
+      try {
+        await server.listen();
+        const { port } = server.httpServer.address();
+        const mcp = `http://127.0.0.1:${port}/mcp`;
+        const token = PLAYGROUND_HOST === undefined ? undefined : await ownerMcpToken(native);
+        process.stdout.write(
+          `\n${OWNER ? "Playground" : "Living world"}: ${native.world.artifact.packId}@${native.world.artifact.version} (${native.scope.worldId} / ${native.scope.spaceId})\n` +
+            `  Open:    http://127.0.0.1:${port}${worldRoutePath(native.scope)}\n` +
+            `  Sign in: local session credential "${CREDENTIAL}" (${OWNER ? "the world's owner" : "observation only"})\n` +
+            (token === undefined
+              ? ""
+              : `  MCP:     ${mcp} with header "Authorization: Bearer ${token}" (the owner's token for a coding agent)\n` +
+                `  Agent:   claude mcp add --transport http clockgrove-playground ${mcp} --header "Authorization: Bearer ${token}"\n`) +
+            `  Stop:    Ctrl-C; the database and runtime storage are temporary and removed on exit.\n\n`,
+        );
+        await stopped();
+      } finally {
+        await server.close();
+      }
+    },
+    { mcp: PLAYGROUND_HOST !== undefined },
+  );
 });

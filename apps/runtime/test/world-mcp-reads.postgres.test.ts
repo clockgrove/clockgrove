@@ -47,6 +47,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
         "command_receipt",
         "run_receipt",
         "run_search",
+        "world_journal",
+        "event_why",
       ]);
       await owner.sql(
         "UPDATE clockgrove.world_memberships SET grants=array_append(grants,'runtime:world-observe')",
