@@ -22,8 +22,8 @@ it.skipIf(isNativeWorldOwnerChild())(
   "owns provider, PostgreSQL and workerd",
   async () => {
     await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
-      // The member talks; a second principal holds the inspect and operate grants and operator
-      // evidence.
+      // The member talks; a second principal, not an owner, holds the inspect and operate grants and
+      // operator evidence, and is delegated `runtime:usage-webhook` during the test.
       prepare: async (fixture) => {
         const { truthOf } = await import("./world-fixture.js");
         await truthOf(fixture)(
@@ -41,9 +41,10 @@ it.skipIf(isNativeWorldOwnerChild())(
                     '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}', now()
                FROM clockgrove.world_memberships WHERE principal_id = 'principal-runtime';
            UPDATE clockgrove.world_memberships
-              SET grants = array_append(grants, 'runtime:world-operate')
-            WHERE principal_id = 'principal-outsider'
-              AND NOT 'runtime:world-operate' = ANY(grants);`,
+              SET roles = ARRAY['member'],
+                  grants = array_append(array_remove(grants, 'runtime:world-operate'),
+                                        'runtime:world-operate')
+            WHERE principal_id = 'principal-outsider';`,
         );
       },
     });
@@ -70,6 +71,18 @@ it.skipIf(!isNativeWorldOwnerChild())(
         MEMBER,
       );
 
+      // Operating the world is not enough: the registration is refused until the owner delegates
+      // `runtime:usage-webhook` to the inspector.
+      const unauthorized = await owner.request(
+        "/v1/runtime/usage/webhook",
+        { version: 1, ...owner.scope, url: "https://hooks.example/usage" },
+        INSPECTOR,
+      );
+      expect(unauthorized.status).toBe(403);
+      await owner.sql(
+        `UPDATE clockgrove.world_memberships SET grants = array_append(grants, 'runtime:usage-webhook')
+          WHERE principal_id = 'principal-outsider'`,
+      );
       // The inspector registers through the route and receives the webhook's signing secret once.
       const registered = await owner.request(
         "/v1/runtime/usage/webhook",

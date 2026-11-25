@@ -18,9 +18,28 @@ import {
   PostgreSqlUsageReader,
   PostgreSqlUsageWebhooks,
 } from "@clockgrove/persistence";
-import { INSPECT_GRANT, OPERATE_GRANT } from "./inspector.js";
+import { INSPECT_GRANT } from "./inspector.js";
 import { usageWebhookSecret } from "./usage-webhooks.js";
 import { assertWorldCommandContext, worldAuthorization } from "./world-commands.js";
+
+/** The grant to register a usage webhook (`docs/protocols/usage.md`). */
+export const USAGE_WEBHOOK_GRANT = "runtime:usage-webhook";
+
+/**
+ * Whether the caller may point the space's usage at an outside host: `runtime:usage-webhook`,
+ * which a world's owner holds by default and may delegate, as `runtime:mcp-install` (the owner's
+ * decision of 2026-11-25). An actor or system identity holds no default; 0078's
+ * `runtime_usage_webhook_registrar` applies the same rule in the database.
+ */
+export function holdsUsageWebhookGrant(context: TrustedExecutionContext): boolean {
+  const roles = context.roles.map(String);
+  return (
+    context.grants.map(String).includes(USAGE_WEBHOOK_GRANT) ||
+    (roles.includes("owner") &&
+      !roles.includes("actor") &&
+      !String(context.principalId).startsWith("system:"))
+  );
+}
 
 /** The usage query's and webhook registration's routes (`docs/protocols/usage.md`). */
 export const USAGE_ROUTES = ["/v1/runtime/usage/query", "/v1/runtime/usage/webhook"] as const;
@@ -48,9 +67,10 @@ export class PostgreSqlUsageInspector {
   /**
    * Registers, replaces or disables the caller's webhook for the space. The reply carries the
    * signing secret, derived from the deployment secret and the webhook's ID. A webhook makes the
-   * deployment post to a host the caller names, so registering is an operator mutation: it needs
-   * `runtime:world-operate` beside the query's grant and ceiling. The `usage-webhook` audit row,
-   * naming where the export now goes, commits with the registration; a failure is audited apart.
+   * deployment post to a host the caller names, the egress an outbound MCP server has, so it needs
+   * `runtime:usage-webhook` (`holdsUsageWebhookGrant`) beside the query's grant and ceiling. The
+   * `usage-webhook` audit row, naming where the export now goes, commits with the registration; a
+   * failure is audited apart.
    */
   async register(
     input: UsageWebhookRequest,
@@ -59,7 +79,10 @@ export class PostgreSqlUsageInspector {
   ): Promise<UsageWebhookRegistration> {
     const entryId = input.url === null ? "disabled" : new URL(input.url).origin;
     const target: AuditTarget = { subject: "usage-webhook", entryId };
-    const authorization = await this.admitted(input, context, [INSPECT_GRANT, OPERATE_GRANT]);
+    const authorization = await this.admitted(input, context, [INSPECT_GRANT], (trusted) => {
+      if (!holdsUsageWebhookGrant(trusted))
+        throw new AuthorizationRefusedError("usage webhook authority refused");
+    });
     try {
       const webhookId = await this.webhooks.register(
         authorization,
@@ -84,9 +107,11 @@ export class PostgreSqlUsageInspector {
     input: { readonly scope: UsageQueryRequest["scope"] },
     context: TrustedExecutionContext,
     grants: readonly string[],
+    authority?: (context: TrustedExecutionContext) => void,
   ): Promise<ReturnType<typeof worldAuthorization>> {
     try {
       for (const grant of grants) assertWorldCommandContext(context, input.scope, grant);
+      authority?.(context);
       if (!context.privacyCeiling.allowedCategories.includes("operator_evidence"))
         throw new AuthorizationRefusedError("inspection ceiling refused");
     } catch (error) {

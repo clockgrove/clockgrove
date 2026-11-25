@@ -161,7 +161,9 @@ metadata remains untrusted; discovery alone grants no access. Effect classes are
 `external-write`, regardless of server hints. The internal `world_command` name is preserved.
 
 The separate owner-defaulted `runtime:mcp-install` grant governs installation and binding
-changes. The isolated secret-provider role confers no installation or capability authority.
+changes. The owner-defaulted `runtime:usage-webhook` grant, delegable in the same way, governs
+registering a usage webhook, which posts a space's usage to an outside host; see the
+[usage protocol](usage.md). Neither is implied by `runtime:world-operate`. The isolated secret-provider role confers no installation or capability authority.
 Provider-session loss fences old credentials and requires reconnect; see the
 [provider contract](mcp.md#postgresql-secret-provider). Credential-backed discovery now has an
 owned coordinator, including OAuth, composed through local authenticated routes and retained provider

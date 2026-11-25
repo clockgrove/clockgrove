@@ -140,15 +140,21 @@ never skips an event, and a reader that re-reads a page sees the same `eventId`s
 ```
 
 It answers `{ "webhookId": "…", "url": "…", "signingSecret": "whsec_…" }`. A webhook makes the
-deployment post to a host the caller names, so registering is an operator mutation: the caller
-needs the operator grant `runtime:world-operate` beside the usage reader's grant and ceiling (as
-the query), and holds one webhook per space: registering again replaces its URL and keeps its ID,
+deployment send the space's player usage to a host outside it on a schedule, the egress an
+outbound MCP server has, so registering takes the same narrow, owner-held authority: the grant
+`runtime:usage-webhook`, beside the usage reader's grant `runtime:world-inspect` and the
+`operator_evidence` ceiling (as the query). A world's owner holds `runtime:usage-webhook` by
+default and may delegate it by adding it to a member's grants, as `runtime:mcp-install`; an actor
+or `system:` identity gets no owner default, and `runtime:world-operate` does not imply it. A
+caller without it is refused (403). The caller holds one
+webhook per space: registering again replaces its URL and keeps its ID,
 cursor and secret; `"url": null` disables it. The URL is `https` to a public host name (no IP
 address, single label, or `localhost`, `.local`, `.internal`, `.home`, `.lan`, `.arpa`, `.test` or
 `.invalid` name), without credentials, at most 2048 bytes; it is stored, posted to and answered in
 its normalised form (`HTTPS://Billing.Example` is `https://billing.example/`), and any other is a
 400 `invalid_inspection_request`. A webhook posts only what its registrar may read, as the
-registrar: once they lose either grant or the ceiling, it stops. Registering, replacing or disabling is audited as subject
+registrar: once they lose the inspect grant, `runtime:usage-webhook` (or, for an owner's default,
+the owner role) or the ceiling, it stops. Registering, replacing or disabling is audited as subject
 `usage-webhook`, its entry the URL's origin or `disabled` (never the path or query, which may carry
 the receiver's own credential), in the registration's own transaction, so a webhook never exists
 without its audit row; a registration that fails is audited `failed`, and a refused one as a
