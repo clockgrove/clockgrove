@@ -336,7 +336,10 @@ Omitting the field keeps the presentation's encoding and draws no surface. Pack 
 presentation that names a zone, channel or band its pack does not declare, and, with
 `SURFACE_DECAL_BUDGET_EXCEEDED`, one whose decals cannot hold every mark: at each tier, the summed
 `markCapacity` of the labelled zones having a channel with a treatment that draws marks on that tier
-must fit that tier's `decals` (`surfaceDecalRefusal` in `@clockgrove/contracts`). The zone and mark
+must fit that tier's `decals` (`surfaceDecalRefusal` in `@clockgrove/contracts`). The runtime reads
+its own copy of the presentation, so it applies the same check where it binds that copy to the
+installed policy: a scene or flashback projection over a budget too small is refused with
+`SurfaceDecalBudgetRefusedError`, code `SURFACE_DECAL_BUDGET_EXCEEDED`, and draws nothing. The zone and mark
 budgets are the pack's own (`SURFACE_BUDGET_EXCEEDED`, [SDK refusal codes](../../packages/world-pack-sdk/docs/refusal-codes.md)).
 No budget is met by dropping a mark.
 

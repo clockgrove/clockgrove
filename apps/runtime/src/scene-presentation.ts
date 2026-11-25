@@ -13,6 +13,8 @@ import {
   type SceneSurfaceHost,
   type SceneSurfaces,
   type SceneSurfaceZone,
+  type SurfaceDecalRefusal,
+  surfaceDecalRefusal,
 } from "@clockgrove/contracts";
 import {
   presentationSchema,
@@ -199,6 +201,21 @@ export function sceneEffects(
   return effects;
 }
 
+/**
+ * A presentation whose decal budget cannot hold every mark the installed pack's zones keep (issue
+ * 267): the scene is refused with the stable code rather than projecting marks a renderer would
+ * have to drop.
+ */
+export class SurfaceDecalBudgetRefusedError extends Error {
+  readonly code = "SURFACE_DECAL_BUDGET_EXCEEDED";
+  constructor(readonly refusal: SurfaceDecalRefusal) {
+    super(
+      `${refusal.code}: surfaces.decals.${refusal.tier} holds ${refusal.budget} of ${refusal.required} marks`,
+    );
+    this.name = "SurfaceDecalBudgetRefusedError";
+  }
+}
+
 /** Whether the installed pack's presentation binds surfaces, so a reader loads the policy for them. */
 export function presentsSurfaces(
   pack: { readonly packId?: string },
@@ -249,8 +266,19 @@ export function sceneSurfaces(
   const presented = inputs.find((item) => item.presentation.pack.id === pack.packId)?.presentation
     .surfaces;
   const declared = policy?.surfaces;
-  if (presented === undefined || declared === undefined || state.surfaces === undefined)
-    return undefined;
+  if (presented === undefined || declared === undefined) return undefined;
+  // The runtime's presentation is a separate copy of the pack's, so its decal budget is checked
+  // here, where the runtime binds it to the installed policy, as pack conformance checks its own.
+  const refusal = surfaceDecalRefusal(
+    presented,
+    declared.zones.map((zone) => ({
+      zoneId: zone.id,
+      channels: zone.channels.map((entry) => entry.channel),
+      markCapacity: zone.markCapacity,
+    })),
+  );
+  if (refusal !== undefined) throw new SurfaceDecalBudgetRefusedError(refusal);
+  if (state.surfaces === undefined) return undefined;
   const shown = new Set(frames.map((frame) => `${frame.frameId}@${frame.version}`));
   const labels = new Map(presented.zones.map((zone) => [zone.zoneId, zone.label]));
   const channels = new Map(declared.channels.map((channel) => [channel.id, channel]));

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import {
   decodeAssetManifest,
   decodeAssetStyleProfile,
@@ -7,7 +8,8 @@ import {
   decodeSceneMaterialDelivery,
   decodeSceneProjection,
 } from "@clockgrove/contracts";
-import { fixedPoint } from "@clockgrove/domain";
+import { fixedPoint, type WorldBehaviorPolicy } from "@clockgrove/domain";
+import { decodeResource } from "@clockgrove/world-pack-sdk";
 import { expect, it } from "vitest";
 import {
   type AssetEntry,
@@ -17,12 +19,15 @@ import {
   sha256Hex,
   validateSource,
 } from "../../../packages/assets/src/index.js";
+import { REPO_ROOT } from "../../../packages/simulator/cli/repo.js";
 import { scenePatchOperations } from "../src/scene-delivery.js";
 import {
   decodeScenePresentations,
   materialSceneLighting,
+  SurfaceDecalBudgetRefusedError,
   sceneEffects,
   scenePresentationBindings,
+  sceneSurfaces,
 } from "../src/scene-presentation.js";
 
 it("projects generated material bindings, time-of-day lights and weather without changing legacy scenes", () => {
@@ -322,4 +327,48 @@ it("projects generated material bindings, time-of-day lights and weather without
   expect(
     materialSceneLighting({ packId: "legacy" }, [], 0n, { rainIntensity: 0 }, []),
   ).toBeUndefined();
+});
+
+// Issue 267: the runtime reads its own copy of the presentation, so it refuses a decal budget too
+// small for the installed pack's marks with the stable code instead of projecting marks to drop.
+it("refuses a runtime presentation whose decal budget cannot hold the pack's marks", async () => {
+  const reference = `${REPO_ROOT}/worlds/fixture/reference`;
+  const runtime = JSON.parse(await readFile(`${reference}/runtime.json`, "utf8"));
+  const { policy } = decodeResource(
+    await readFile(`${reference}/resources/policies/behavior.json`),
+    "behavior.json",
+  ) as { policy: WorldBehaviorPolicy };
+  const project = (medium: number) => {
+    const [entry] = runtime.presentations;
+    const presentation = {
+      ...entry.presentation,
+      surfaces: {
+        ...entry.presentation.surfaces,
+        decals: { ...entry.presentation.surfaces.decals, medium },
+      },
+    };
+    const inputs = decodeScenePresentations(JSON.stringify([{ ...entry, presentation }]));
+    return () =>
+      sceneSurfaces(
+        { packId: presentation.pack.id },
+        policy,
+        { simulationTime: 0n, surfaces: undefined } as never,
+        [],
+        new Set(),
+        String,
+        inputs,
+      );
+  };
+  expect(project(12)()).toBeUndefined();
+  let refused: unknown;
+  try {
+    project(10)();
+  } catch (error) {
+    refused = error;
+  }
+  expect(refused).toBeInstanceOf(SurfaceDecalBudgetRefusedError);
+  expect(refused).toMatchObject({
+    code: "SURFACE_DECAL_BUDGET_EXCEEDED",
+    refusal: { tier: "medium", required: 11, budget: 10 },
+  });
 });
