@@ -45,7 +45,9 @@ export interface DeliveryDecision {
     | "consent_required"
     | "consent_changed"
     | "policy_changed"
-    | "budget_exhausted";
+    | "budget_exhausted"
+    /** An operator muted the actor or the conversation (issue 374, G8): nothing is sent. */
+    | "actor_muted";
   readonly effectiveUrgency: "normal" | "urgent" | "silent";
 }
 

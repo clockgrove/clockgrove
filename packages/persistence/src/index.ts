@@ -15,6 +15,7 @@ export * from "./authority-readers.js";
 export * from "./memory-r2-bucket.js";
 export * from "./postgres-activations.js";
 export * from "./postgres-actor-documents.js";
+export * from "./postgres-actor-mutes.js";
 export * from "./postgres-actor-processes.js";
 export * from "./postgres-approved-effects.js";
 export * from "./postgres-artifacts.js";

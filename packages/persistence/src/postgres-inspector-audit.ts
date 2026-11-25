@@ -34,7 +34,8 @@ export type InspectorAccess = {
         | "agent-runs"
         | "usage-events"
         | "context-manifest"
-        | "actor-documents";
+        | "actor-documents"
+        | "actor-mute";
       readonly commandId?: undefined;
       readonly entryId?: undefined;
     }

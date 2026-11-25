@@ -255,6 +255,7 @@ export const CONVERSATION_REFUSAL_STATUS: Readonly<
   conversation_busy: 409,
   turn_not_found: 404,
   turn_cancelled: 409,
+  conversation_muted: 409,
 };
 
 /** NDJSON framing of a streamed Talk: one frame per line. */

@@ -90,7 +90,8 @@ REVOKE ALL ON FUNCTION clockgrove.set_actor_mute(text, text, text, text, text, b
 GRANT EXECUTE ON FUNCTION clockgrove.set_actor_mute(text, text, text, text, text, boolean)
   TO clockgrove_runtime;
 
--- Whether the actor, or the named session of it, is muted. Every start of a turn, delivery or
+-- Whether the actor, or the named session of it, is muted; a wake session (0075) is muted with the
+-- conversation it wakes, whose thread it delivers on. Every start of a turn, delivery or
 -- effect asks in its own transaction. It answers only for the installed tenant, or for a trusted
 -- internal caller that installs none (the effect ledger), and only a boolean, never the row.
 CREATE FUNCTION clockgrove.actor_muted(
@@ -111,11 +112,39 @@ AS $$
        SELECT 1 FROM clockgrove.actor_mutes m
         WHERE m.tenant_id = mute_tenant AND m.world_id = mute_world
           AND m.timeline_id = mute_timeline AND m.actor_id = mute_actor AND m.muted
-          AND (m.session_id = '' OR m.session_id = mute_session))
+          AND (m.session_id = '' OR m.session_id = mute_session
+               OR m.session_id = (SELECT s.wake_of FROM clockgrove.conversation_sessions s
+                                   WHERE s.tenant_id = mute_tenant
+                                     AND s.session_id = mute_session)))
 $$;
 REVOKE ALL ON FUNCTION clockgrove.actor_muted(text, text, text, text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION clockgrove.actor_muted(text, text, text, text, text)
   TO clockgrove_runtime;
+
+-- Whether a pending effect's actor, or the conversation of the run that proposed it, is muted: the
+-- effect ledger asks before it starts an attempt, and records a muted one refused instead.
+CREATE FUNCTION clockgrove.effect_muted(
+  mute_tenant text,
+  mute_world text,
+  mute_timeline text,
+  mute_effect text
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, clockgrove
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM clockgrove.effect_intents i
+      LEFT JOIN clockgrove.agent_runs r ON r.tenant_id = i.tenant_id AND r.run_id = i.run_id
+     WHERE i.tenant_id = mute_tenant AND i.world_id = mute_world
+       AND i.timeline_id = mute_timeline AND i.effect_id = mute_effect
+       AND clockgrove.actor_muted(i.tenant_id, i.world_id, i.timeline_id, i.actor_id,
+                                  coalesce(r.session_id, '')))
+$$;
+REVOKE ALL ON FUNCTION clockgrove.effect_muted(text, text, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION clockgrove.effect_muted(text, text, text, text) TO clockgrove_runtime;
 
 -- An actor mute request is audited beside the document change sets it shares its grant with.
 ALTER TABLE clockgrove.inspector_accesses

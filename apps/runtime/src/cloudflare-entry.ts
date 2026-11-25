@@ -32,6 +32,7 @@ import {
   WorldMcpAdmission,
 } from "@clockgrove/application";
 import {
+  type ActorMuteRequest,
   type BrowserScope,
   type ContextInspectRequest,
   type DocumentChangeRequest,
@@ -610,7 +611,7 @@ export function composeCognition(
   const cognition = <T>(operation: (inspector: PostgreSqlCognitionInspector) => Promise<T>) =>
     session((client, artifacts) => operation(new PostgreSqlCognitionInspector(client, artifacts)));
   const port = <I extends { readonly scope: BrowserScope }, O>(
-    subject: "context-manifest" | "actor-documents",
+    subject: "context-manifest" | "actor-documents" | "actor-mute",
     inspect: (
       inspector: PostgreSqlCognitionInspector,
       input: I,
@@ -631,6 +632,9 @@ export function composeCognition(
     ),
     change: port("actor-documents", (inspector, input: DocumentChangeRequest, context) =>
       inspector.changeDocuments(input, context),
+    ),
+    mute: port("actor-mute", (inspector, input: ActorMuteRequest, context) =>
+      inspector.muteActor(input, context),
     ),
   };
 }

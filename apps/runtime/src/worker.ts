@@ -30,6 +30,8 @@ import {
   WorldContinuationPendingError,
 } from "@clockgrove/application";
 import {
+  type ActorMuteRequest,
+  type ActorMuteView,
   type BrowserScope,
   type ChangeViewedSpace,
   type ClientViewTrace,
@@ -40,6 +42,7 @@ import {
   type DocumentChangeRequest,
   type DocumentReadRequest,
   type DocumentVersionView,
+  decodeActorMuteRequest,
   decodeBrowserScope,
   decodeChangeViewedSpace,
   decodeClientViewTraceRequest,
@@ -95,6 +98,7 @@ import {
 import type { CanonicalRuntimeStateSource } from "./canonical-state.js";
 import { consoleRuntimeLogger } from "./cloudflare-logs.js";
 import {
+  ActorMuteTargetNotFoundError,
   type CognitionChangeOutcome,
   DocumentNotFoundError,
   GOVERN_GRANT,
@@ -274,6 +278,8 @@ export interface RuntimeOwnerBindings {
     readonly context: AuditedPort<ContextInspectRequest, ContextInspection>;
     readonly read: AuditedPort<DocumentReadRequest, DocumentVersionView>;
     readonly change: AuditedPort<DocumentChangeRequest, CognitionChangeOutcome>;
+    /** Operator mutes (issue 374, G8); absent in compositions that predate it, so it fails closed. */
+    readonly mute?: AuditedPort<ActorMuteRequest, ActorMuteView>;
   };
   /** The audited runtime-state inspector, under the same grant, limit and audit. */
   readonly runtimeState?: AuditedPort<RuntimeStateInput, RuntimeStateView>;
@@ -360,6 +366,7 @@ const CODE_OUTCOMES: Readonly<Record<RuntimeResponseCode, RuntimeLogOutcome>> = 
   run_not_found: "refused",
   manifest_not_found: "refused",
   document_not_found: "refused",
+  conversation_not_found: "refused",
   inspection_rate_limited: "refused",
   stale_epoch: "conflict",
   noop_command_conflict: "conflict",
@@ -563,6 +570,8 @@ export class RuntimeWorker {
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/actor-documents/change")
       return this.answer("runtime_action_answered", (note) => this.documentChange(request, note));
+    if (request.method === "POST" && url.pathname === "/v1/runtime/actor-mute")
+      return this.answer("runtime_action_answered", (note) => this.actorMute(request, note));
     if (request.method === "POST" && url.pathname === "/v1/runtime/actions")
       return this.answer("runtime_action_answered", (note) => this.runtimeAction(request, note));
     if (request.method !== "POST" || url.pathname !== "/v1/runtime/no-op") {
@@ -1657,6 +1666,33 @@ export class RuntimeWorker {
         error instanceof InspectorRateLimitedError
           ? refusal(note, "inspection_rate_limited", 429)
           : undefined,
+      unavailable: "inspector_unavailable",
+      failed: ["inspection_failed", "runtime_action_failed"],
+    });
+  }
+
+  /**
+   * An operator's mute of an actor or one conversation of it under `runtime:actor-govern` (issue
+   * 374, G8): answers the mute as it now stands. A session that is not the actor's answers 404.
+   */
+  private actorMute(request: Request, note: RequestNote): Promise<Response> {
+    return this.audited(request, note, {
+      decode: decodeActorMuteRequest,
+      invalid: "invalid_inspection_request",
+      port: this.bindings.cognition?.mute,
+      grant: GOVERN_GRANT,
+      seed: () => crypto.randomUUID(),
+      ids: (input) => ({ ...input.scope }),
+      answer: (view) => {
+        note.outcome = "committed";
+        return jsonResponse(view);
+      },
+      refuse: (error) =>
+        error instanceof ActorMuteTargetNotFoundError
+          ? refusal(note, "conversation_not_found", 404)
+          : error instanceof InspectorRateLimitedError
+            ? refusal(note, "inspection_rate_limited", 429)
+            : undefined,
       unavailable: "inspector_unavailable",
       failed: ["inspection_failed", "runtime_action_failed"],
     });

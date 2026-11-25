@@ -106,6 +106,7 @@ export type RuntimeResponseCode =
   | "run_not_found"
   | "manifest_not_found"
   | "document_not_found"
+  | "conversation_not_found"
   | "inspection_rate_limited"
   | "world_catching_up"
   | "owner_unavailable"

@@ -1510,17 +1510,24 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     admitted: ActorActivation,
   ): Promise<ActorActivation> {
     try {
-      const result = await this.fibers(address.scope, address.actorId).talk(
-        address.participant,
-        {
-          scope: address.scope,
-          sessionId: admitted.sessionId,
-          messageId: admitted.messageId,
-          text: admitted.input,
-        },
-        () => undefined,
-        false,
-      );
+      const result = await this.fibers(address.scope, address.actorId)
+        .talk(
+          address.participant,
+          {
+            scope: address.scope,
+            sessionId: admitted.sessionId,
+            messageId: admitted.messageId,
+            text: admitted.input,
+          },
+          () => undefined,
+          false,
+        )
+        .catch((error: unknown) => {
+          // A muted actor or conversation starts no turn: the wake settles with that refusal.
+          if (error instanceof ConversationRefusedError && error.code === "conversation_muted")
+            return { refused: error.code, receipt: undefined };
+          throw error;
+        });
       // A durable approval/tool wait is unfinished work; its alarm must retain admission.
       if (result.receipt === undefined && result.refused === "conversation_busy") return admitted;
       if (result.receipt !== undefined && admitted.delivery !== undefined)
