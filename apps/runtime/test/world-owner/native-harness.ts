@@ -474,6 +474,9 @@ export async function withNativeWorldOwner(
                 NATIVE_RESEARCH_DATABASE_URL: connection("clockgrove_admin"),
               }
             : {}),
+          ...(process.env.NATIVE_USAGE_ADMISSION_ORIGIN
+            ? { NATIVE_USAGE_ADMISSION_ORIGIN: process.env.NATIVE_USAGE_ADMISSION_ORIGIN }
+            : {}),
           NATIVE_PROVISIONING_FAULTS_DISABLED: provisioningFaultsDisabled,
           AUTH_DATABASE_URL: connection("clockgrove_auth_verifier"),
           ...(mcp ? { MCP_AUTH_DATABASE_URL: connection("clockgrove_mcp_auth_writer") } : {}),

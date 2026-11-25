@@ -10,6 +10,8 @@ import type {
   TurnPhase,
   TurnRequest,
   TurnStatus,
+  UsageAdmissionRequestBody,
+  UsageRefusalCause,
   VoiceMode,
   WorldPersonaId,
 } from "@clockgrove/contracts";
@@ -59,6 +61,16 @@ export interface ConversationResponse {
   readonly command?: CapabilityCall;
   /** The model call's measured usage; absent for the free fixture. */
   readonly usage?: ModelUsage;
+  /** Why admission refused the call (`outcomeCode` is `usage_refused`); named in the run's step. */
+  readonly refusalCause?: string;
+}
+
+/** The answer of the budgets and the admission hook's registration, before the hook is asked. */
+export interface UsageAdmissionGrant {
+  readonly decision: "admitted" | "refused";
+  readonly cause: UsageRefusalCause | null;
+  readonly hook: { readonly hookId: string; readonly url: string } | null;
+  readonly admission: UsageAdmissionRequestBody["admission"];
 }
 
 export interface ModelUsage {
@@ -243,6 +255,16 @@ export interface ConversationStore {
     participant: ConversationParticipant,
     fiber: TurnFiber,
   ): Promise<TurnResearchState>;
+  /**
+   * Asks the space's budgets before a model call or tool call of the turn, reserving the call when
+   * they admit it (`docs/protocols/usage.md`, "Admission before spend").
+   */
+  admitUsage?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    category: "model_call" | "tool_call",
+    resource?: string,
+  ): Promise<UsageAdmissionGrant>;
   reserveModelStep?(
     participant: ConversationParticipant,
     fiber: TurnFiber,

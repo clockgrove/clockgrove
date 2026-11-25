@@ -192,6 +192,7 @@ import type {
   RuntimeScope,
 } from "./types.js";
 import { RuntimeRouteKeyMismatchError } from "./types.js";
+import { askAdmissionHook } from "./usage-admission.js";
 import { shadowActorWake, wakeTriageDecider, wakeTriagePolicy } from "./wake-triage.js";
 import * as workflows from "./workflows.js";
 import {
@@ -2619,6 +2620,31 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
     return composeRuntime(this.environment).research;
   }
 
+  /** The fetch that asks a space's admission hook; a test worker overrides it. */
+  protected admissionFetch(): typeof fetch {
+    return globalThis.fetch;
+  }
+
+  private async admit(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    category: "model_call" | "tool_call",
+    resource?: string,
+  ): Promise<{ readonly admitted: true } | { readonly admitted: false; readonly cause: string }> {
+    const grant = await this.stores()(async (store) =>
+      store.admitUsage?.(participant, fiber, category, resource),
+    );
+    if (grant === undefined) return { admitted: true };
+    if (grant.decision === "refused") return { admitted: false, cause: String(grant.cause) };
+    if (grant.hook === null) return { admitted: true };
+    return askAdmissionHook(
+      this.admissionFetch(),
+      this.environment.USAGE_WEBHOOK_SECRET,
+      grant.hook,
+      grant.admission,
+    );
+  }
+
   private fibers(scope: RuntimeScope, actorId: string): TurnFibers {
     this.#fibers ??= new TurnFibers({
       holder: this.instanceId,
@@ -2634,6 +2660,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       executeSelf: (participant, fiber, proposal, definition, input) =>
         this.executeSelf(participant, fiber, proposal, definition, input),
       capabilityRevision: () => this.recovery?.capabilityRevision ?? 0,
+      admit: (participant, fiber, category, resource) =>
+        this.admit(participant, fiber, category, resource),
       checkpointed: (fiber, phase) => this.turnCheckpointed(fiber, phase),
       afterReply: (_participant, fiber, reply) => this.judgeActorReply(fiber, reply),
       beforeModel: async (participant, fiber, input) => {

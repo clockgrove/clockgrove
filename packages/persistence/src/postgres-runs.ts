@@ -199,12 +199,13 @@ export class PostgreSqlRunRecorder {
     runId: string,
     code: string,
     usage?: ModelUsage,
+    summary = "Model unavailable or research bound reached",
   ): Promise<void> {
     await this.client.query(
       `UPDATE clockgrove.run_steps SET status='failed',outcome_code=$3,${USAGE_COLUMNS},
-              summary='Model unavailable or research bound reached'
+              summary=$11
         WHERE tenant_id=$1 AND run_id=$2 AND kind='model_attempt' AND status='running'`,
-      [tenantId, runId, code, ...usageValues(usage)],
+      [tenantId, runId, code, ...usageValues(usage), summary],
     );
     const found = await this.client.query(
       `SELECT coalesce(max(step),0)+1 AS step FROM clockgrove.run_steps WHERE tenant_id=$1 AND run_id=$2`,

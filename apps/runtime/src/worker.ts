@@ -61,6 +61,8 @@ import {
   decodeRuntimeNoOpRequest,
   decodeSayRequest,
   decodeSceneInterest,
+  decodeUsageAdmissionHookRequest,
+  decodeUsageBudgetRequest,
   decodeUsageQueryRequest,
   decodeUsageWebhookRequest,
   decodeWorldDirectoryRequest,
@@ -83,6 +85,10 @@ import {
   SCENE_CREDENTIAL_PREFIX,
   SCENE_PROTOCOL,
   type SceneInterest,
+  type UsageAdmissionHookRegistration,
+  type UsageAdmissionHookRequest,
+  type UsageBudgetList,
+  type UsageBudgetRequest,
   type UsagePage,
   type UsageQueryRequest,
   type UsageWebhookRegistration,
@@ -287,6 +293,13 @@ export interface RuntimeOwnerBindings {
   readonly journalPages?: AuditedPort<JournalInput, JournalPage>;
   /** Registers the caller's signed usage webhook; absent without `USAGE_WEBHOOK_SECRET`. */
   readonly usageWebhooks?: AuditedPort<UsageWebhookRequest, UsageWebhookRegistration>;
+  /** Sets a budget of the caller's space (0084); needs `runtime:world-operate`. */
+  readonly usageBudgets?: AuditedPort<UsageBudgetRequest, UsageBudgetList>;
+  /** Registers the space's admission hook; absent without `USAGE_WEBHOOK_SECRET`. */
+  readonly usageAdmissionHooks?: AuditedPort<
+    UsageAdmissionHookRequest,
+    UsageAdmissionHookRegistration
+  >;
   /** Context manifests and governed actor documents (0037), audited like the run inspector. */
   readonly cognition?: {
     readonly context: AuditedPort<ContextInspectRequest, ContextInspection>;
@@ -581,6 +594,19 @@ export class RuntimeWorker {
     if (request.method === "POST" && url.pathname === "/v1/runtime/usage/webhook")
       return this.answer("causal_chain_inspection_answered", (note) =>
         this.runRead(request, note, decodeUsageWebhookRequest, this.bindings.usageWebhooks),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/usage/budget")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.runRead(request, note, decodeUsageBudgetRequest, this.bindings.usageBudgets),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/usage/admission-hook")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.runRead(
+          request,
+          note,
+          decodeUsageAdmissionHookRequest,
+          this.bindings.usageAdmissionHooks,
+        ),
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/context/inspect")
       return this.answer("causal_chain_inspection_answered", (note) =>

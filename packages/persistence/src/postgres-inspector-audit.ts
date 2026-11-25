@@ -42,7 +42,12 @@ export type InspectorAccess = {
     }
   | {
       /** A usage webhook's registration names where its export now goes (origin or `disabled`). */
-      readonly subject: "event" | "scheduled-action" | "usage-webhook";
+      readonly subject:
+        | "event"
+        | "scheduled-action"
+        | "usage-webhook"
+        | "usage-budget"
+        | "usage-admission-hook";
       readonly commandId?: undefined;
       readonly entryId: string;
     }
