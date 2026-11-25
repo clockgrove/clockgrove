@@ -4,7 +4,7 @@
 decimal-string `routingEpoch` and `authorityEpoch`, and `command: encodeCanonicalNode(CommandEnvelope)`.
 It returns the canonical-node `WorldCommandResult`: committed 200, kernel refusal 409,
 authorization refusal 403 and authentication refusal 401. Physical commands require committed
-world participation and `runtime:world-command`, and clock controls `runtime:world-clock`; workspace administration and `runtime:no-op`
+world participation and `runtime:world-command`, clock controls `runtime:world-clock` and surface repair `runtime:world-repair`; workspace administration and `runtime:no-op`
 cannot substitute. Tenant members receive `409 world_not_ready` before readiness without a
 projection or execution. Unauthenticated callers and tenant outsiders receive no readiness disclosure.
 

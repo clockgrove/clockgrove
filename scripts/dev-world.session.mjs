@@ -45,6 +45,7 @@ const GRANTS = OWNER
       "runtime:world-command",
       "runtime:world-clock",
       "runtime:world-operate",
+      "runtime:world-repair",
     ]
   : ["runtime:world-observe"];
 const OWNER_CEILING =

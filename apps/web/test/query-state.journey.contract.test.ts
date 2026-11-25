@@ -11,6 +11,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { SceneSession } from "../src/scene-api.js";
 import { useSceneStateProjection } from "../src/scene-queries.js";
 import { useSceneView, useWhyView } from "../src/scene-state.js";
+import { TextSceneSurfaces } from "../src/text-scene.js";
 import { sceneSession, selectionOf } from "./scene-socket-fixture.js";
 
 const scope = decodeBrowserScope({
@@ -255,4 +256,45 @@ it("sends the selected entity's marks read once, over the selection's idle query
   session.loadMarks(key);
   expect(calls).toHaveLength(2);
   session.replace(undefined, undefined);
+});
+
+it("opens a region-hosted zone's moments by zoneId from the text path, and closes them on sign-out", async () => {
+  const { session } = await observing();
+  const marks = decodeFlashbackMarks(
+    JSON.parse(
+      '{"tenantId":"tenant-q","worldId":"world-q","timelineId":"timeline-q","spaceId":"space-q","version":1,"privacyClass":"public_scene","target":{"zoneId":"porch-boards"},"bounds":{"moments":16,"scanEvents":4000},"status":"read","scanned":{"from":"1","to":"9"},"reachesStart":true,"zones":[{"zoneId":"porch-boards","host":{"kind":"region","regionId":"porch"},"marks":1,"moments":[{"eventId":"e","commandId":"c","partitionSequence":"9","simulationTime":"20","kind":"worn","actorId":"b","interactionId":"track","leftMark":true}],"more":0}]}',
+    ),
+  );
+  // The text path's Surfaces list: a region-hosted zone's sentence with its moments button.
+  const text = () =>
+    renderToStaticMarkup(
+      createElement(TextSceneSurfaces, {
+        session,
+        surfaces: {
+          decals: { low: 0, medium: 0, high: 0 },
+          zones: [{ zoneId: "porch-boards", sentence: "The porch is muddy." }],
+        } as never,
+      }),
+    );
+  expect(text()).toContain("The porch is muddy.");
+  expect(text()).toContain('aria-pressed="false">Why: moments of porch-boards</button>');
+  const pending = beginReply(() => session.openZoneMarks("porch-boards"));
+  expect(session.getZoneMarksSnapshot().status).toBe("loading");
+  await pending(marks);
+  const calls = vi.mocked(fetch).mock.calls;
+  expect(String(calls[0]?.[0])).toMatch(/\/v1\/runtime\/flashback\/marks$/);
+  expect(JSON.parse(calls[0]?.[1]?.body?.toString() ?? "null")).toEqual({
+    version: 1,
+    ...scope,
+    zoneId: "porch-boards",
+  });
+  expect(session.getZoneMarksSnapshot()).toEqual({ status: "ready", value: marks });
+  expect(text()).toContain('aria-pressed="true">Why: moments of porch-boards</button>');
+  expect(text()).toContain("worn by traffic; b; interaction track");
+  expect(text()).toContain("Flashback moment 9");
+  session.replace(undefined, undefined);
+  expect(session.getZoneMarksSnapshot().status).toBe("none");
+  expect(
+    session.queries.getQueryCache().findAll({ queryKey: ["living-scene", "zone-marks"] }),
+  ).toEqual([]);
 });

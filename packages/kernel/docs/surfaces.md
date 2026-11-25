@@ -16,8 +16,8 @@ the ordinary revision check and sealed command attribution. `surface.interact` r
 acting actor: the effective actor must equal `actorId`, and the actor must be active and within
 reach of the zone (in the host object's space, or inside the host region). `surface.repair` is an
 ordinary kernel command; it records the stated `reason` and the amounts it removed under the
-issuing command's attribution. Which principals may issue it (the owner, through the world steward)
-is decided by the runtime's grants, not by the kernel.
+issuing command's attribution. Which principals may issue it is decided by the runtime's grants,
+not by the kernel: see [owner repair and the why walk](#owner-repair-and-the-why-walk).
 
 Refusals are `precondition-failed` with these checks (version 1), and change nothing:
 
@@ -111,9 +111,29 @@ a porch and tracks mud onto it, another actor's scratch on a post noticed by sig
 that sense, or with the post in a container or another space, the drain of a dying actor's mud, carried-matter conservation,
 repair, the budget refusal and scenario decoding.
 
-## Not yet here
+## Owner repair and the why walk
 
-The why path from a zone to its cause, the presentation binding, and the runtime's owner repair
-route are later parts of issue #267. A zone's moments (the events above that changed it) are
-already listed for flashbacks by `POST /v1/runtime/flashback/marks`
-([observation protocol](../../../docs/protocols/living-yard-observation.md#flashback-marks)).
+The owner cleans or repairs a zone with `surface.repair@1` on the runtime's ordinary world-command
+route (`POST /v1/runtime/commands`, run by the space owner's `PostgreSqlCommandOwner.submit`), under
+its own grant, `runtime:world-repair` (`worldCommandGrant` in `apps/runtime/src/world-commands.ts`),
+the world owner's right: `runtime:world-command` alone does not allow it, so a member or MCP persona
+that may act in the world cannot erase what was done to it. A member without the grant is refused
+and nothing changes. The stated `reason` is the repair's journaled cause and the owner's
+principal is in the command's sealed attribution. A future world steward issues repairs through the
+same route.
+
+Asking why a zone looks as it does walks the journal: `POST /v1/runtime/flashback/marks` lists the
+zone's moments newest first (each interaction with its actor, time and whether it left a mark, each
+traffic entry, band crossing and repair, with its event id and partition sequence), and each moment
+opens a flashback, a replay of that moment from the journal with its context and recorded why
+([observation protocol](../../../docs/protocols/living-yard-observation.md#flashback-marks)). The
+flashback tells a surface moment in a closed sentence: `<actor> <interaction> on <zone>, leaving a
+mark.`, `<zone> was repaired (<reason>), removing <amount> <channel>.` and `<zone>'s <channel> moved
+into <band>.` (or `left every band.`).
+
+`apps/runtime/test/surface-remembers.journey.postgres.test.ts` proves the whole path in the
+reference fixture: a scratch through the owner command path moves the bark into a new band with an
+attributable mark, a passing actor notices it, the why walk lists and replays it, time heals it with
+band crossings only, the owner's repair is journaled with its cause and refused without the grant,
+and exact partition replay matches the stored state. Replay and catch-up of the fixture's
+`surface-marks` scenario in every execution mode are covered by the runtime parity suites.

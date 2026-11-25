@@ -890,9 +890,14 @@ export class PostgreSqlCommandOwner {
   }
 }
 
-/** Clock controls need their own grant; `runtime:world-command` alone never allows them. */
+/**
+ * Clock controls need their own grant, and so does an owner's surface repair (issue 267): it zeroes
+ * a zone and clears its marks, so it is the world owner's right, `runtime:world-repair`.
+ * `runtime:world-command` alone never allows either.
+ */
 export function worldCommandGrant(input: WorldCommandInput): string {
-  return isClockCommand(input.command.type) ? "runtime:world-clock" : "runtime:world-command";
+  if (isClockCommand(input.command.type)) return "runtime:world-clock";
+  return input.command.type === "surface.repair" ? "runtime:world-repair" : "runtime:world-command";
 }
 
 export function assertWorldCommandContext(
