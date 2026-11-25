@@ -197,11 +197,10 @@ export function FlashbackPanel({
                   <li key={commandId}>
                     <button
                       type="button"
-                      data-flashback-opener={`before:${commandId}`}
-                      onClick={(event) => {
-                        flashbackOpener.current = event.currentTarget;
-                        session.flashback({ commandId }, value.moment.objectId ?? undefined);
-                      }}
+                      // Closing a chain returns focus to the control that opened its first flashback.
+                      onClick={() =>
+                        session.flashback({ commandId }, value.moment.objectId ?? undefined)
+                      }
                     >
                       {`And before that: command ${commandId}`}
                     </button>

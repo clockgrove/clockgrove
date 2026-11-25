@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { chromium } from "playwright";
 import { expect, it } from "vitest";
 import { FakeConversationAdapter } from "../../apps/runtime/src/channel-adapters.ts";
+import { PostgreSqlFlashbackReader } from "../../apps/runtime/src/flashback.ts";
 import { PostgreSqlCausalInspector } from "../../apps/runtime/src/inspector.ts";
 import {
   PostgreSqlEntitySelectionReader,
@@ -33,9 +34,14 @@ import {
   withNativeWorldOwner,
 } from "../../apps/runtime/test/world-owner/native-harness.ts";
 import { createServer } from "../../apps/web/node_modules/vite/dist/node/index.js";
-import { decodeCanonicalNode, executeWorldCommand } from "../../packages/application/src/index.ts";
+import {
+  createPartitionSnapshot,
+  decodeCanonicalNode,
+  executeWorldCommand,
+} from "../../packages/application/src/index.ts";
 import {
   decodeEntitySelection,
+  decodeFlashback,
   decodeLivingScene,
   decodeRecordedWhy,
   decodeWorldBootState,
@@ -45,9 +51,12 @@ import {
 } from "../../packages/contracts/src/index.ts";
 import { executeWorldKernel } from "../../packages/kernel/src/index.ts";
 import {
+  PostgreSqlArtifactStore,
+  PostgreSqlSnapshotStore,
   PostgreSqlWorldCommandJournal,
   PostgreSqlWorldOwnerReader,
 } from "../../packages/persistence/src/index.ts";
+import { decodeResource } from "../../packages/world-pack-sdk/src/index.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/fixture/reference/shell.json");
@@ -378,6 +387,20 @@ const observeHall = async (backend) => {
           recordedWhy: (...args) =>
             withClient(fixture.environment, (requestClient) =>
               new PostgreSqlCausalInspector(requestClient).recordedWhy(...args),
+            ),
+          deny: (input, principalId, denial) =>
+            withClient(fixture.environment, (requestClient) =>
+              new PostgreSqlCausalInspector(requestClient).deny(input, principalId, denial),
+            ),
+        },
+        flashback: {
+          inspect: (...args) =>
+            withClient(fixture.environment, (requestClient) =>
+              new PostgreSqlFlashbackReader(
+                requestClient,
+                new PostgreSqlCausalInspector(requestClient),
+                { artifacts: new PostgreSqlArtifactStore(requestClient), decodeResource },
+              ).inspect(...args),
             ),
           deny: (input, principalId, denial) =>
             withClient(fixture.environment, (requestClient) =>
@@ -1548,7 +1571,7 @@ const observeHall = async (backend) => {
         expect(recent.history.actions).toEqual(recorded.slice(0, 100));
         const recentText = recorded.map(
           (action) =>
-            `Action ${action.actionId}; event ${action.eventId}; command ${action.commandId}; ${action.type}; partition sequence ${action.partitionSequence}; recorded simulation time ${action.simulationTime}; recorded at ${action.recordedAt} Why action ${action.actionId}`,
+            `Action ${action.actionId}; event ${action.eventId}; command ${action.commandId}; ${action.type}; partition sequence ${action.partitionSequence}; recorded simulation time ${action.simulationTime}; recorded at ${action.recordedAt} Why action ${action.actionId} Flashback action ${action.actionId}`,
         );
         await expect.poll(() => actionRows.allTextContents()).toEqual(recentText.slice(0, 100));
         // Pointer and keyboard must expose identical ordered action rows through this panel.
@@ -1565,7 +1588,7 @@ const observeHall = async (backend) => {
         await page.keyboard.press("Tab");
         await page.keyboard.press("Enter");
         await expect.poll(() => actionRows.allTextContents()).toEqual(recentText.slice(0, 100));
-        await actionRows.first().getByRole("button").click();
+        await actionRows.first().getByRole("button").first().click();
         const resourceWhy = page.getByRole("region", {
           name: "Recorded resource causes",
           exact: true,
@@ -1596,7 +1619,7 @@ const observeHall = async (backend) => {
           ];
           await route.fulfill({ response, json: value });
         });
-        await actionRows.first().getByRole("button").click();
+        await actionRows.first().getByRole("button").first().click();
         await expect
           .poll(() => resourceWhy.getByRole("listitem").allTextContents())
           .toEqual([
@@ -1604,8 +1627,8 @@ const observeHall = async (backend) => {
           ]);
         await page.getByRole("button", { name: "Close Why", exact: true }).click();
         await page.unroute("**/v1/runtime/why");
-        // Each action now has a Why button before the earlier-history control in tab order.
-        await actionRows.last().getByRole("button").focus();
+        // Each action now has Why and Flashback buttons before the earlier-history control in tab order.
+        await actionRows.last().getByRole("button").last().focus();
         await page.keyboard.press("Tab");
         expect(await earlierButton.evaluate((button) => button === document.activeElement)).toBe(
           true,
@@ -1654,6 +1677,15 @@ const observeHall = async (backend) => {
           "PRIVATE-PERCEPTION-SENTINEL",
         ];
         await withClient(fixture.environment, async (commandClient) => {
+          // Issue 273: the Why command's flashback replays from this snapshot, not from birth.
+          await createPartitionSnapshot(
+            provisioned.authorization,
+            { ...provisioned.partition.target, partitionId },
+            {
+              snapshots: new PostgreSqlSnapshotStore(commandClient),
+              artifacts: new PostgreSqlArtifactStore(commandClient),
+            },
+          );
           const result = await executeWorldCommand(commandRequest(provisioned, whyCommand), {
             journal: new PostgreSqlWorldCommandJournal(commandClient),
             behavior: provisioned.behavior,
@@ -1796,6 +1828,106 @@ const observeHall = async (backend) => {
         expect(
           await whyPanel.getByText("Child commands: None", { exact: true }).textContent(),
         ).toBe("Child commands: None");
+        // Issue 273: the Why's flashback replays the moment read-only from the snapshot taken just
+        // before it. The panel shows the runtime's own answer, the cited summary without private
+        // refs, a scrubbable replay at the live tier's budget, and steps back through its causes.
+        const flashbackState = [await commands(), await durable()];
+        const flashbackOf = async (fields) => {
+          const answer = await page.request.post(
+            `http://127.0.0.1:${address.port}/v1/runtime/flashback`,
+            {
+              headers: { authorization: "Bearer hall-inspect" },
+              data: { version: 1, ...auth.scope, ...fields },
+            },
+          );
+          expect(answer.status()).toBe(200);
+          return decodeFlashback(await answer.json());
+        };
+        const flashbackPanel = page.getByRole("region", { name: "Flashback", exact: true });
+        const flashbackLines = (value) =>
+          value.summary.map(
+            (line) =>
+              `${line.kind[0].toUpperCase()}${line.kind.slice(1)}: ${line.text}${line.cites.length > 0 ? ` Cites ${line.cites.join(", ")}.` : ""}`,
+          );
+        const flashbackOpener = whyPanel.getByRole("button", {
+          name: "Flashback to this moment",
+          exact: true,
+        });
+        const shownFlashback = page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/v1/runtime/flashback") && response.status() === 200,
+        );
+        await flashbackOpener.click();
+        let moment = await flashbackOf({ commandId: "browser-why-original" });
+        expect(decodeFlashback(await (await shownFlashback).json())).toEqual(moment);
+        expect([moment.replay.status, moment.replay.start === "birth"]).toEqual([
+          "replayed",
+          false,
+        ]);
+        expect(moment.frames.some((frame) => frame.moment)).toBe(true);
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        expect(
+          await flashbackPanel
+            .getByRole("region", { name: "Flashback summary", exact: true })
+            .getByRole("listitem")
+            .allTextContents(),
+        ).toEqual(flashbackLines(moment));
+        expect(await flashbackPanel.textContent()).not.toMatch(/SENTINEL/u);
+        // SwiftShader is a software adapter, so the live tier is low: no PiP canvas, text remains.
+        const replay = flashbackPanel.getByRole("region", {
+          name: "Flashback replay",
+          exact: true,
+        });
+        await replay
+          .getByText(
+            "Picture-in-picture is off at this quality tier; the frame captions and summary remain.",
+            { exact: true },
+          )
+          .waitFor();
+        const caption = (index) => {
+          const frame = moment.frames[index];
+          return `Frame ${index + 1} of ${moment.frames.length}: after command ${frame.commandId}, partition sequence ${frame.partitionSequence}${frame.moment ? ", the moment" : ""}.`;
+        };
+        const frameCaption = replay.locator("[data-flashback-frame]");
+        // Playback steps through every journaled frame, then stops on the last.
+        await replay.getByRole("button", { name: "Replay from start", exact: true }).click();
+        await expect.poll(() => frameCaption.textContent()).toBe(caption(moment.frames.length - 1));
+        await replay.getByRole("button", { name: "Play replay", exact: true }).waitFor();
+        const scrubber = replay.getByRole("slider", { name: "Flashback frame", exact: true });
+        await scrubber.press("Home");
+        await expect.poll(() => frameCaption.textContent()).toBe(caption(0));
+        const momentIndex = moment.frames.findIndex((frame) => frame.moment);
+        for (let index = 0; index < momentIndex; index += 1) await scrubber.press("ArrowRight");
+        await expect.poll(() => frameCaption.textContent()).toBe(caption(momentIndex));
+        // "And before that…" follows the actor through each recorded cause while the journal has one.
+        expect(moment.before).toEqual(causalParents);
+        for (let step = 0; moment.before.length > 0 && step < 4; step += 1) {
+          const cause = moment.before[0];
+          await flashbackPanel
+            .getByRole("button", { name: `And before that: command ${cause}`, exact: true })
+            .click();
+          moment = await flashbackOf({
+            commandId: cause,
+            ...(moment.moment.objectId === null ? {} : { objectId: moment.moment.objectId }),
+          });
+          await flashbackPanel
+            .getByRole("heading", { name: `Flashback: command ${cause}`, exact: true })
+            .waitFor();
+          await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+          expect(
+            await flashbackPanel
+              .getByRole("region", { name: "Flashback summary", exact: true })
+              .getByRole("listitem")
+              .allTextContents(),
+          ).toEqual(flashbackLines(moment));
+        }
+        await flashbackPanel.getByRole("button", { name: "Close flashback", exact: true }).click();
+        expect(await flashbackPanel.count()).toBe(0);
+        expect(await flashbackOpener.evaluate((button) => button === document.activeElement)).toBe(
+          true,
+        );
+        // A flashback reads the journal only: no command, revision or simulation time changed.
+        expect([await commands(), await durable()]).toEqual(flashbackState);
         const sharedResponses = [];
         for (const [endpoint, fields] of [
           ["scene", {}],

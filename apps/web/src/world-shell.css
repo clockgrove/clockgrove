@@ -178,6 +178,23 @@ body {
   max-width: 100%;
 }
 
+/* Issue 273: the flashback replays picture-in-picture over the corner while the live scene runs. */
+.rw-flashback-pip {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  z-index: 11;
+  background: var(--cg-v1-panel-solid);
+  border: 1px solid var(--cg-v1-border);
+  border-radius: var(--cg-v1-radius-md);
+}
+
+.rw-flashback-cites {
+  color: var(--cg-v1-text-muted);
+}
+
 .rw-main [role="alert"] {
   color: var(--cg-v1-error);
   border-left: 4px solid var(--cg-v1-error);

@@ -294,6 +294,32 @@ are the required hardware targets. Their working bake-off paths are evidence for
 not revalidation of the integrated adapter. CI's SwiftShader path supplies product correctness
 evidence when its journey runs; physical GPU timing is reserved for the maintainer step.
 
+### Flashback picture-in-picture
+
+A flashback (issue 273, `src/flashback-pip.tsx`) plays the journaled frames the runtime returns
+for a past moment in a second `ThreeWorldSceneAdapter`, picture-in-picture over the corner, while
+the live scene keeps running. Each frame is a committed `SceneProjection` passed to
+`loadSnapshot`; the PiP never receives patches, cues or selection and emits no intent. It runs with
+reduced motion, so it draws each journaled state as it was and never a position between two of
+them. It steps one frame every `FLASHBACK_FRAME_MS` (400 ms, the live `INTERPOLATION_MS`, so a
+frame lasts as long as one committed move draws live; at most 17 frames play in under 7 s), and
+can be paused, played, scrubbed with its **Flashback frame** slider and replayed from the start.
+
+The live renderer reports its tier through the adapter's optional `onQualityTier`, and
+`FLASHBACK_PIP_BUDGET` (`src/quality-tier.ts`) sets the PiP's CSS size from it:
+
+| Live tier | PiP canvas |
+| --- | --- |
+| low | none |
+| medium | 320 × 200 |
+| high | 480 × 300 |
+
+Low has none because it is the tier a device or a struggling frame rate drops to, where a second
+renderer would cost the live view; the sizes are a half and three-quarters of the renderer's
+640 × 400 logical view. With no live canvas (text fallback, canvas unavailable) there is no PiP
+canvas either. The frame captions and the flashback's text summary remain at every tier. A PiP
+that loses its device or refuses a frame is destroyed and says so; the live scene is unaffected.
+
 ## World scene content v1
 
 [`RendererContent`](../src/renderer-content.ts) is a separate, versioned renderer contract, outside
