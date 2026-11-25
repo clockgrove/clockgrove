@@ -16,9 +16,9 @@ import {
 import type { EventId, ObjectId, PrincipalId, SpaceId } from "./ids.js";
 import { decodeOpaqueId } from "./ids.js";
 import { decodeMaterialChannels } from "./material.js";
-import { decodeSceneSurfaces, type SceneSurfaces } from "./scene-surfaces.js";
 import type { InteractionSummary } from "./scene-interactions.js";
 import { decodeInteractionSummary } from "./scene-interactions.js";
+import { decodeSceneSurfaces, type SceneSurfaces } from "./scene-surfaces.js";
 import {
   array,
   ContractDecodeError,
