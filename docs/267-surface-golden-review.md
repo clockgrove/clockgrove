@@ -60,3 +60,7 @@ events are equal once the optional `surfaces` and `notices` fields of `movement.
 | months-fast-forward | As death-and-successor, in both runs. |
 | walk-crossings | 4 crossings (+4 integrations) and the drain at the keeper's death in `main` and `offline`. The death walk's step now journals 20 events, not 19 (the drain); its two event-count assertions were updated to 20. |
 | surface-marks (new) | The completion experience: a scratch moves the bark into `scratched` with an attributable mark; the companion notices it by sight and scent and the dependent by scent alone, each naming the keeper; mud moves 100 from the bed to the keeper and 60 onto the porch with a print (conserved); two digs reach `shallow`; scent fades at 4 h, the bark heals out of `scratched` in bright light, rain washes the porch clean, exactly five crossings with no per-tick events; one-call and hourly advances journal the same surface events; replay matches. |
+
+Outside the goldens, the decision-shadow journey's final state hash of a reference-fixture day becomes
+`8134921563bfcc1e5251231833e6077bf97b9c5bfa558e7c5cad0d5dc1697321`: its state now holds the declared surfaces.
+No assertion is widened.
