@@ -304,6 +304,13 @@ painterliness in their textures. The rule is world-agnostic and names no cast or
 renderer's grounding, shadow and budget rules are in
 [Grounding and one picture](../../apps/web/docs/scene.md#grounding-and-one-picture-266).
 
+Lamps belong to the same picture. The brightest of a world's content lamps (its content `lights`) is
+the key lamp, the key at dusk. At the tiers whose lamp budget holds a map, it casts shadows for cast
+and set alike; below, every contact shape, the cast's and the set's, takes the same cheap stand-in,
+a soft shadow on the floor pointing away from the lamp. No tier's budget holds the map until the
+owner's quality lab measures its frame cost at the top tier, so today every tier draws the stand-in. The rules are in
+[Lamp shadows](../../apps/web/docs/scene.md#lamp-shadows-266).
+
 Occlusion is part of the same picture: it is depth-true by default, so a character behind a trunk
 is hidden like anything else behind it. Only the selected (or followed) character is revealed, after
 a short dwell. World content says what may fade (canopies, roofs: `kind: "fade"`) and what never
