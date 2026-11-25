@@ -1289,7 +1289,9 @@ export class RuntimeWorker {
         );
       const state = await this.bindings.observation?.state?.(say.scope, context);
       const audience =
-        state === undefined ? undefined : sayAudience(state, say.actorId, say.messageId);
+        state === undefined
+          ? undefined
+          : sayAudience(state, say.scope.spaceId, say.actorId, say.messageId);
       return jsonResponse(
         scriptedSay(say, participant, new Date().toISOString(), envelope, audience),
       );

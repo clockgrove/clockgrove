@@ -159,8 +159,8 @@ export function influenceReceipt(
  * runtime's existing perception rule (`perceivedEntities` in `actor-model.ts`): a runtime world
  * declares no perception policy, so no modality range is declared, and the space stands in for one
  * until a world can declare it. The resolver still range-checks every location-derived observer,
- * so an observer in another frame is never in range; the bound is the largest the resolver
- * accepts.
+ * and its range test holds only within one frame, so an observer in another frame than the
+ * speaker's is never in range; the bound is the largest the resolver accepts.
  */
 export const SAY_SOUND_RANGE = Number.MAX_SAFE_INTEGER;
 
@@ -168,20 +168,29 @@ export const SAY_SOUND_RANGE = Number.MAX_SAFE_INTEGER;
  * Who hears a Say: the kernel resolver over a synthetic, never-recorded `sound` event at the
  * state's revision, in the speaker's space and the place it stands in (`placeOf` its pose), so the
  * observers in the space (`space-contents`), in that place (`nearby-peer`) and in its ancestor
- * places (`ancestor-space`) hear it: those in and near the space. The world records no occlusion
- * or access rule for sound, so the policy declares none. Its event id is a digest of the message id, so any message id the request
- * accepts (up to 1,024 bytes) fits the resolver's 256-character id bound. The speaker is listed
- * when the resolver includes it (as `event-actor`). A speaker missing from the state or a refused
- * resolution fails closed: the kernel's resolver version with no observers, which the receipt's
- * decoder accepts.
+ * places (`ancestor-space`) hear it: those in and near the space. Every location-derived observer
+ * is range-checked, and the resolver's range test holds only within one frame (`withinRange`), so
+ * an observer in another frame than the speaker's, even of its space, does not hear it. The world
+ * records no occlusion or access rule for sound, so the policy declares none. The receipt names
+ * only entities of the caller's authorized space (`scopeSpaceId`, the space its observe grant
+ * reads): an entity of another space standing in the speaker's place or an ancestor place is
+ * left out, and a speaker outside that space names no one. Its event id is a digest of the message
+ * id, so any message id the request accepts (up to 1,024 bytes) fits the resolver's 256-character
+ * id bound. The speaker is listed when the resolver includes it (as `event-actor`). A speaker
+ * missing from the state or a refused resolution fails closed: the kernel's resolver version with
+ * no observers, which the receipt's decoder accepts.
  */
 export function sayAudience(
   state: WorldState,
+  scopeSpaceId: string,
   speakerId: string,
   messageId: string,
 ): NonNullable<SayReceipt["audience"]> {
   const speaker = state.entities.find((entity) => entity.objectId === speakerId);
-  const spaceId = speaker?.spaceId;
+  const spaceId = speaker?.spaceId === scopeSpaceId ? scopeSpaceId : undefined;
+  const inScope = new Set<string>(
+    state.entities.flatMap((entity) => (entity.spaceId === scopeSpaceId ? [entity.objectId] : [])),
+  );
   const place =
     speaker === undefined
       ? undefined
@@ -220,7 +229,7 @@ export function sayAudience(
     ? {
         resolverVersion: outcome.value.resolverVersion,
         observers: outcome.value.reasons.flatMap((reason) =>
-          reason.outcome === "included"
+          reason.outcome === "included" && inScope.has(reason.observerId)
             ? [
                 {
                   observerId: reason.observerId,

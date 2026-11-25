@@ -824,7 +824,8 @@ delivers three:
 
 - **§17 Say's audience (S6).** A public Say's receipt names its spatial audience, decided by the
   kernel's audience resolver for a `sound` event of the speaker: the speaker and the entities of its
-  space within the Say range hear it, and no one else. Say stays distinct from Talk and never enters
+  space in its frame within the Say range hear it, and no one else; the receipt names only entities
+  of the caller's authorized space. Say stays distinct from Talk and never enters
   a session ([channels](../protocols/channels.md)).
 - **§20 document limits and retention (X2).** A cognitive document write past its size, change-set
   or count limit is refused with its typed reason, and the document inspector shows the versions'

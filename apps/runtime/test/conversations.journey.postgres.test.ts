@@ -302,7 +302,7 @@ it.skipIf(isNativeWorldOwnerChild())(
   () => {
     // A speaker the canonical state does not hold: the resolver is never asked.
     const state = { revision: 7n, entities: [] } as unknown as WorldState;
-    const audience = sayAudience(state, "actor-gone", "say-1");
+    const audience = sayAudience(state, "space-1", "actor-gone", "say-1");
     expect(audience).toEqual({ resolverVersion: "clockgrove-audience-resolver@2", observers: [] });
     const context = trustedTestContext();
     const receipt = scriptedSay(
@@ -323,5 +323,48 @@ it.skipIf(isNativeWorldOwnerChild())(
       audience,
     );
     expect(decodeSayReceipt(JSON.parse(JSON.stringify(receipt))).audience).toEqual(audience);
+  },
+);
+
+it.skipIf(isNativeWorldOwnerChild())(
+  "names only the caller's space in a Say's audience, and only the speaker's frame",
+  () => {
+    const pose = (frameId: string, x: bigint, y: bigint) => ({
+      frameId,
+      frameVersion: 1,
+      coordinates: [x, y],
+    });
+    const entity = (objectId: string, spaceId: string, at: ReturnType<typeof pose>) => ({
+      objectId,
+      spaceId,
+      pose: at,
+    });
+    const state = {
+      revision: 3n,
+      entities: [
+        entity("speaker", "space-a", pose("ground", 0n, 0n)),
+        entity("peer", "space-a", pose("ground", 5_000n, 0n)),
+        entity("aloft", "space-a", pose("loft", 0n, 0n)),
+        entity("neighbour", "space-b", pose("ground", 10n, 10n)),
+      ],
+      spatialRegions: [
+        {
+          regionId: "porch",
+          version: 1,
+          frameId: "ground",
+          frameVersion: 1,
+          shape: { kind: "rectangle", min: [-100n, -100n], max: [100n, 100n] },
+        },
+      ],
+    } as unknown as WorldState;
+    const heard = (scopeSpaceId: string) =>
+      sayAudience(state, scopeSpaceId, "speaker", "say-1").observers.map(
+        (o) => `${o.observerId}:${o.reason}`,
+      );
+    // Another space's entity standing in the speaker's place is never named to this caller; an
+    // entity of the speaker's space in another frame is out of range.
+    expect(heard("space-a")).toEqual(["peer:space-contents", "speaker:event-actor"]);
+    // A speaker outside the caller's space names no one.
+    expect(heard("space-b")).toEqual([]);
   },
 );
