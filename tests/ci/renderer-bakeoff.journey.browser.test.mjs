@@ -360,27 +360,6 @@ it.each(["webgpu", "webgl2"])(
           await new Promise(requestAnimationFrame);
           return f.capture();
         };
-        const counts = [];
-        for (const tier of ["low", "medium", "high"]) {
-          f.setQuality(tier);
-          adapter.updateContent(0);
-          await capture();
-          counts.push([
-            adapter.metrics.contentLights,
-            adapter.metrics.shadowMaps,
-            adapter.metrics.shadowTextureBytes,
-            adapter.metrics.textureBytes,
-          ]);
-        }
-        f.setContentShadows(false);
-        f.setContentLights(false);
-        const unlit = await capture();
-        f.setContentLights(true);
-        const local = await capture();
-        f.setContentLights(false);
-        const noShadow = await capture();
-        f.setContentShadows(true);
-        const shadow = await capture();
         const pixels = async (url) => {
           const image = new Image();
           image.src = url;
@@ -392,6 +371,159 @@ it.each(["webgpu", "webgl2"])(
           context.drawImage(image, 0, 0);
           return context.getImageData(0, 0, canvas.width, canvas.height).data;
         };
+        // Contact proof samples a floor point 40% of the radius toward the viewer: the model and sprite
+        // stand on the anchor and rise up the screen, so the floor in front of it is never covered by them.
+        const toward = Math.sqrt(3) / 2;
+        const darkening = (shown, hidden, mesh) => {
+          const point = mesh.getWorldPosition(adapter.camera.position.clone());
+          mesh.geometry.computeBoundingBox();
+          const box = mesh.geometry.boundingBox;
+          const offset = 0.4 * ((box.max.x - box.min.x) / 2) * mesh.getWorldScale(point.clone()).x;
+          point.y -= offset / 2;
+          point.z += offset * toward;
+          point.project(adapter.camera);
+          const width = adapter.renderer.domElement.width,
+            height = adapter.renderer.domElement.height;
+          const cx = Math.round(((point.x + 1) * width) / 2),
+            cy = Math.round(((1 - point.y) * height) / 2);
+          let sum = 0;
+          for (let py = cy - 1; py <= cy + 1; py++)
+            for (let px = cx - 1; px <= cx + 1; px++) {
+              const at = (py * width + px) * 4;
+              sum +=
+                hidden[at] +
+                hidden[at + 1] +
+                hidden[at + 2] -
+                shown[at] -
+                shown[at + 1] -
+                shown[at + 2];
+            }
+          return sum / 9;
+        };
+        // #266 one picture: a body casts into and receives the set's key-light map, through the real
+        // shadow pass. A side key light (37 degrees off the card's normal) throws the body's shadow
+        // beside it; a caster on a layer only the shadow camera sees shades the body from the light.
+        const pixelAt = (point) => {
+          const at = point.clone().project(adapter.camera);
+          const width = adapter.renderer.domElement.width,
+            height = adapter.renderer.domElement.height;
+          return [Math.round(((at.x + 1) * width) / 2), Math.round(((1 - at.y) * height) / 2)];
+        };
+        const meanDarkening = (from, to, [cx, cy]) => {
+          const width = adapter.renderer.domElement.width;
+          let sum = 0;
+          for (let py = cy - 1; py <= cy + 1; py++)
+            for (let px = cx - 1; px <= cx + 1; px++) {
+              const at = (py * width + px) * 4;
+              sum += from[at] + from[at + 1] + from[at + 2] - to[at] - to[at + 1] - to[at + 2];
+            }
+          return sum / 9;
+        };
+        // The key is the brightest shadow-casting light, as the renderer chooses it.
+        const keyIndex = () =>
+          adapter.sky.reduce(
+            (best, light, index) =>
+              light.castShadow && light.intensity > (adapter.sky[best]?.intensity ?? -1)
+                ? index
+                : best,
+            -1,
+          );
+        const sharedShadows = async (body) => {
+          // The marker shares the frame origin with the content sprite, which stands in front of it;
+          // content is hidden here so the samples read the body, not the sprite.
+          f.diagnostics.root.visible = false;
+          // The fixture's content lamps (60000 each) saturate the marker; the key light is measured alone.
+          f.setContentLights(false);
+          const index = keyIndex();
+          const original = adapter.sky[index].userData.shadowDirection;
+          adapter.sky[index].userData.shadowDirection = original
+            .clone()
+            .set(0.6, 0.1, 0.8)
+            .normalize();
+          await capture();
+          body.geometry.computeBoundingBox();
+          const box = body.geometry.boundingBox;
+          const centre = body.localToWorld(box.getCenter(original.clone()));
+          const corners = [];
+          for (const x of [box.min.x, box.max.x])
+            for (const y of [box.min.y, box.max.y])
+              for (const z of [box.min.z, box.max.z])
+                corners.push(pixelAt(body.localToWorld(original.clone().set(x, y, z))));
+          const left = Math.min(...corners.map(([x]) => x)) - 1,
+            right = Math.max(...corners.map(([x]) => x)) + 1,
+            top = Math.min(...corners.map(([, y]) => y)) - 1,
+            bottom = Math.max(...corners.map(([, y]) => y)) + 1;
+          body.castShadow = false;
+          const uncast = await pixels(await capture());
+          body.castShadow = true;
+          const cast = await pixels(await capture());
+          const width = adapter.renderer.domElement.width;
+          let beside = 0;
+          for (let at = 0; at < cast.length; at += 4) {
+            const px = (at / 4) % width,
+              py = Math.floor(at / 4 / width);
+            if (px >= left && px <= right && py >= top && py <= bottom) continue;
+            const delta =
+              cast[at] + cast[at + 1] + cast[at + 2] - uncast[at] - uncast[at + 1] - uncast[at + 2];
+            if (delta < -10) beside++;
+          }
+          const sky = adapter.sky[index];
+          const toLight = sky.position.clone().sub(sky.target.position).normalize();
+          const blocker = f.diagnostics.shadowCaster.clone();
+          blocker.layers.set(1);
+          blocker.rotation.set(0, 0, 0);
+          blocker.position.copy(centre).addScaledVector(toLight, 60);
+          blocker.castShadow = true;
+          adapter.scene.add(blocker);
+          sky.shadow.camera.layers.enable(1);
+          const shaded = await pixels(await capture());
+          blocker.removeFromParent();
+          sky.shadow.camera.layers.disable(1);
+          sky.userData.shadowDirection = original;
+          f.diagnostics.root.visible = true;
+          f.setContentLights(true);
+          await capture();
+          return {
+            beside,
+            self: meanDarkening(uncast, cast, pixelAt(centre)),
+            received: meanDarkening(cast, shaded, pixelAt(centre)),
+          };
+        };
+        const counts = [];
+        const grounding = [];
+        for (const tier of ["low", "medium", "high"]) {
+          f.setQuality(tier);
+          adapter.updateContent(0);
+          await capture();
+          counts.push([
+            adapter.metrics.contentLights,
+            adapter.metrics.shadowMaps,
+            adapter.metrics.shadowTextureBytes,
+            adapter.metrics.textureBytes,
+          ]);
+          const body = adapter.drawn.get("object-fixture");
+          const meshes = [body.shadow, ...adapter.contentContacts];
+          const shown = await pixels(await capture());
+          for (const mesh of meshes) mesh.visible = false;
+          const hidden = await pixels(await capture());
+          for (const mesh of meshes) mesh.visible = true;
+          grounding.push({
+            contacts: adapter.metrics.contactShadows,
+            flags: [body.body.castShadow, body.body.receiveShadow],
+            shadowSides: [].concat(body.body.material).map((material) => material.shadowSide),
+            darkening: meshes.map((mesh) => darkening(shown, hidden, mesh)),
+            shared: tier === "low" ? null : await sharedShadows(body.body),
+          });
+        }
+        f.setContentShadows(false);
+        f.setContentLights(false);
+        const unlit = await capture();
+        f.setContentLights(true);
+        const local = await capture();
+        f.setContentLights(false);
+        const noShadow = await capture();
+        f.setContentShadows(true);
+        const shadow = await capture();
         const dark = await pixels(unlit),
           bright = await pixels(local);
         const before = await pixels(noShadow),
@@ -498,6 +630,7 @@ it.each(["webgpu", "webgl2"])(
         return {
           status,
           counts,
+          grounding,
           surfaceChanges,
           retired,
           low,
@@ -520,6 +653,25 @@ it.each(["webgpu", "webgl2"])(
       ]);
       for (let i = 0; i < 3; i++)
         expect(lighting.counts[i][3]).toBeLessThanOrEqual([16, 64, 192][i] * 1024 * 1024);
+      expect(lighting.grounding.map((row) => row.contacts)).toEqual([3, 3, 3]);
+      expect(lighting.grounding.map((row) => row.flags)).toEqual([
+        [false, false],
+        [true, true],
+        [true, true],
+      ]);
+      for (const row of lighting.grounding) {
+        expect(row.shadowSides.every((side) => side === 2)).toBe(true);
+        expect(row.darkening).toHaveLength(3);
+        for (const darker of row.darkening) expect(darker).toBeGreaterThan(10);
+      }
+      // #266 one picture, at the tiers with active maps: the body's silhouette darkens the floor
+      // beside it, a caster between it and the light darkens it, and its own card does not.
+      expect(lighting.grounding[0].shared).toBeNull();
+      for (const { shared } of lighting.grounding.slice(1)) {
+        expect(shared.beside).toBeGreaterThan(8);
+        expect(shared.received).toBeGreaterThan(10);
+        expect(shared.self).toBeLessThan(10);
+      }
       expect(lighting.status).toBe("ready");
       for (const changed of lighting.surfaceChanges) expect(changed).toBeGreaterThan(20);
       expect(lighting.retired).toBeGreaterThanOrEqual(2);

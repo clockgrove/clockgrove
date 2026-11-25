@@ -295,6 +295,15 @@ capture and enable reduced motion for repeatable stills. Use ordinary animation 
 capturing motion. A canvas screenshot captures the product camera, lights, grade, bloom and tier;
 it does not need the authenticated local-session command above.
 
+### One picture
+
+A scene is one picture. The cast and the set share lights, shadows, indirect light, fog and the grade
+on every quality tier. Rim light is presentation data with a per-tier budget, which is none on every
+tier today. No screen-space filter applies to the set and not the cast: painterly worlds carry
+painterliness in their textures. The rule is world-agnostic and names no cast or species. The
+renderer's grounding, shadow and budget rules are in
+[Grounding and one picture](../../apps/web/docs/scene.md#grounding-and-one-picture-266).
+
 ## Runtime inputs
 
 The runtime composition binds `WORLD_PRESENTATION` to a JSON array of presentation records.
