@@ -514,6 +514,25 @@ function contextOf(
 
 const words = (kind: string): string => kind.replaceAll("-", " ");
 
+/**
+ * A closed sentence for an actorless surface moment (issue 267): a repair names its stated reason
+ * and what it removed, a band crossing the bands its channel moved into.
+ */
+function surfaceSentence(type: string, payload: Record<string, unknown>): string | undefined {
+  const zone = String(payload.zoneId);
+  if (type === "surface.repaired") {
+    const removed = (Array.isArray(payload.removed) ? payload.removed : [])
+      .filter((item: { amount?: unknown }) => typeof item.amount === "number" && item.amount > 0)
+      .map((item: { channel?: unknown; amount?: unknown }) => `${item.amount} ${item.channel}`);
+    return `${zone} was repaired (${words(String(payload.reason))})${removed.length === 0 ? "" : `, removing ${removed.join(" and ")}`}.`;
+  }
+  if (type === "surface.band-crossed" && Array.isArray(payload.bands)) {
+    const bands = payload.bands.map(String);
+    return `${zone}'s ${String(payload.channel)} ${bands.length === 0 ? "left every band" : `moved into ${bands.join(" and ")}`}.`;
+  }
+  return undefined;
+}
+
 /** Decision: at most eight event and eight decision sentences, so a busy step stays a short read. */
 const SUMMARY_EVENTS = 8;
 
@@ -542,9 +561,12 @@ function summaryOf(input: {
       text:
         event.type === "surface.interacted" && payload !== undefined
           ? `${nameOf(String(payload.actorId))} ${words(String(payload.interactionId))} on ${String(payload.zoneId)}${payload.mark === null ? "" : ", leaving a mark"}.`
-          : category === undefined
-            ? `A ${words(event.type.replaceAll(".", " "))} event was recorded.`
-            : feedSentence(event.type, payload, FEED_FALLBACKS[category], nameOf),
+          : event.type.startsWith("surface.") && payload !== undefined
+            ? (surfaceSentence(event.type, payload) ??
+              `A ${words(event.type.replaceAll(".", " "))} event was recorded.`)
+            : category === undefined
+              ? `A ${words(event.type.replaceAll(".", " "))} event was recorded.`
+              : feedSentence(event.type, payload, FEED_FALLBACKS[category], nameOf),
       cites: [`event:${event.eventId}`],
     };
   };

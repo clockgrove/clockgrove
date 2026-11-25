@@ -323,8 +323,10 @@ the text path uses ("Ada is behind the cedar."). The rules are in
 A world remembers what its actors do to it as graded surface state: pack-declared zones whose
 channels (wear, mud, depth…) sit in named, overlapping bands and keep a short ring of recent marks
 ([surfaces](../../packages/domain/docs/surfaces.md)). That state is canonical; its look is a *derived
-look*, computed from state and presentation data, never stored. A presentation binds it through its
-optional `surfaces` field:
+look*, computed from state and presentation data, never stored; an *ephemeral reaction* (a branch
+swaying as an actor brushes past) is the renderer's alone and never state. The test for canonical
+state: an actor could notice it later, or the human could ask why it is there. A presentation binds
+it through its optional `surfaces` field:
 
 | Field | Contract |
 | --- | --- |

@@ -10,6 +10,11 @@ Only *material state* lives here: state an actor could notice later or the human
 about. A renderer's *derived look* (computed from this state and a seed) and *ephemeral
 reactions* are never stored. Nothing in the model names a species or a world.
 
+How state becomes a look and a sentence is the presentation's
+([world presentation](../../../docs/protocols/world-presentation.md#surface-treatments-267)); how the
+owner repairs a zone and how the human asks why it looks as it does is the runtime's
+([kernel surfaces](../../kernel/docs/surfaces.md#owner-repair-and-the-why-walk)).
+
 ## Policy: `policy.surfaces`
 
 `WorldBehaviorPolicy.surfaces` is optional. When it is absent the world has no surfaces,

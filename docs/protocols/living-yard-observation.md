@@ -583,8 +583,10 @@ read's: 400 `invalid_inspection_request`, 401 `authentication_refused`, 403
   time, acting actor (null for a crossing or a repair), interaction and whether it left a mark.
   A world whose pack declares no surfaces answers no zones.
 
-A flashback of a `surface.*` event follows its acting actor, and its summary tells an interaction
-in a closed sentence citing the event. The web shell lists a selected entity's marks under
+A flashback of a `surface.*` event follows its acting actor, if it has one, and its summary tells
+the moment in a closed sentence citing the event: an interaction (`<actor> <interaction> on <zone>,
+leaving a mark.`), a repair (`<zone> was repaired (<reason>), removing <amount> <channel>.`) or a
+band crossing (`<zone>'s <channel> moved into <band>.`, or `left every band.`). The web shell lists a selected entity's marks under
 **Marks** in its selection panel, each moment with its own flashback.
 `apps/runtime/test/flashback-marks.journey.postgres.test.ts` checks the list against the
 `clockgrove.events` rows of the zone and plays one moment through the flashback route.
