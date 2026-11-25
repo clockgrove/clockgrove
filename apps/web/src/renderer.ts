@@ -36,6 +36,7 @@ import {
   validateContent,
   validateContentLighting,
 } from "./renderer-content.js";
+import { type OcclusionMetrics, SceneOcclusion } from "./scene-occlusion.js";
 import { worldShell } from "./shell.js";
 import {
   applyScenePatch,
@@ -49,6 +50,7 @@ import {
   pickOrder,
   poseMetres,
   type SceneIntent,
+  type SceneOcclusionReveal,
   type ScenePlacement,
   selectMaterialRendition,
   shownEffects,
@@ -125,6 +127,8 @@ export interface SceneMetrics {
   shadowTextureBytes: number;
   /** Contact shapes drawn: one per projected body and one per content contact descriptor (#266). */
   contactShadows: number;
+  /** #266: the selected character's occlusion and reveal. */
+  readonly occlusion: OcclusionMetrics;
 }
 export type RendererMeasurement =
   | {
@@ -345,6 +349,7 @@ interface Cue {
 
 /** Lit quads in an orthographic 3D scene; canonical projection data alone determines the light rig. */
 export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
+  private readonly occlusion = new SceneOcclusion(SAGE);
   readonly metrics: SceneMetrics = {
     firstRenderMs: undefined,
     patchMs: 0,
@@ -364,6 +369,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     shadowMaps: 0,
     shadowTextureBytes: 0,
     contactShadows: 0,
+    occlusion: this.occlusion.metrics,
   };
   private content: RendererContentInstance | undefined;
   private readonly contentAbort = new AbortController();
@@ -785,6 +791,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.contentAbort.abort();
     const instance = this.content;
     this.content = undefined;
+    this.occlusion.reset();
     if (instance) this.disposeInstance(instance);
     this.syncContentLighting();
     for (const dispose of this.contentLoaderDisposers) {
@@ -1228,6 +1235,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.handlers.add(handler);
     return () => this.handlers.delete(handler);
   }
+  onOcclusion(handler: (reveal: SceneOcclusionReveal | undefined) => void): () => void {
+    return this.occlusion.onReveal(handler);
+  }
   setSelection(id?: WorldObjectId): void {
     this.selected = id;
     this.drawEmphasis();
@@ -1288,6 +1298,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.syncContentLighting();
     this.updateTextureBytes();
     this.resizeViewport();
+    // #266: a tier swaps content materials by copy, so faded ones are restored first; a reveal
+    // still due starts again after its dwell.
+    this.occlusion.reset();
     this.applyMaterialTier();
     this.disposePost();
     const quality = SCENE_QUALITY[tier];
@@ -2401,6 +2414,18 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     changed = this.animate(time) || changed;
     const selected = this.selected === undefined ? undefined : this.drawn.get(this.selected);
     if (selected) this.moveSelection(selected);
+    // #266: only the selected body is tested against content's occluders, and only with content.
+    if (this.content)
+      changed =
+        this.occlusion.update({
+          scene: this.scene,
+          objectId: this.selected,
+          body: selected?.body,
+          camera: this.camera,
+          occluders: this.content.occluders ?? [],
+          reducedMotion: this.reducedMotion,
+          now: time,
+        }) || changed;
     if (changed) {
       try {
         this.renderFrame();
@@ -2517,6 +2542,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.restoreContentErrors?.();
     this.restoreContentErrors = undefined;
     this.contentAbort.abort();
+    this.occlusion.dispose();
     if (this.content) this.disposeInstance(this.content);
     this.content = undefined;
     this.syncContentLighting();

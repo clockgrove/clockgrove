@@ -14,6 +14,8 @@ const web = path.join(app, "src");
 const adapter = path.join(web, "renderer.ts");
 const bridge = path.join(web, "world-scene-adapter");
 const content = path.join(web, "renderer-content.ts");
+// #266: the occlusion reveal is part of the renderer adapter: Three, the bridge and the content contract.
+const occlusion = path.join(web, "scene-occlusion.ts");
 export function assertBrowserSource(source, file) {
   const ast = ts.createSourceFile(
     file,
@@ -58,11 +60,17 @@ export function assertBrowserSource(source, file) {
             local === path.join(web, "shell.js") ||
             local === path.join(web, "renderer-content.js") ||
             // #356: the renderer's own tier policy, free of imports.
-            local === path.join(web, "quality-tier.js")
+            local === path.join(web, "quality-tier.js") ||
+            local === path.join(web, "scene-occlusion.js")
           : path.resolve(file) === content
             ? target === "three/webgpu" || target === "three/tsl" ||
               /^three\/addons\/(?:loaders\/(?:GLTFLoader|KTX2Loader|DRACOLoader)\.js|libs\/meshopt_decoder\.module\.js|libs\/basis\/basis_transcoder\.(?:js|wasm)\?url)$/u.test(target) ||
               local === path.join(web, "renderer.js")
+            : path.resolve(file) === occlusion
+              ? target === "three/webgpu" ||
+                target === "three/tsl" ||
+                local === `${bridge}.js` ||
+                local === path.join(web, "renderer-content.js")
           : path.resolve(file) !== `${bridge}.ts` &&
             (target === "@tanstack/react-query" ||
               target === "zustand" ||
@@ -408,6 +416,7 @@ export async function checkWebBoundaries() {
   for (const [file, targets] of [
     [path.join(web, "negative.ts"), ["phaser", "three", ...outward]],
     [adapter, ["react", "@tanstack/react-query", "zustand", "./scene-state.js", ...outward]],
+    [occlusion, ["react", "zustand", "./scene-state.js", "./scene.js", ...outward]],
     [`${bridge}.ts`, ["react", "zustand", "./scene-state.js"]],
     [path.join(app, "test/negative.ts"), ["phaser", "three"]],
   ]) {

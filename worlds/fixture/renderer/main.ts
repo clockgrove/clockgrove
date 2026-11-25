@@ -1,5 +1,6 @@
 import { decodeSceneProjection, defaultSceneLighting } from "../../../packages/contracts/src/index.js";
 import { ThreeWorldSceneAdapter, type QualityTier } from "../../../apps/web/src/renderer.js";
+import { occlusionText } from "../../../apps/web/src/world-scene-adapter.js";
 import { worldShell } from "../../../apps/web/src/shell.js";
 import { diagnostics, fixtureContent } from "./content.js";
 import committed from "./snapshot.json";
@@ -11,6 +12,7 @@ const reports: unknown[] = [];
 let snapshot = decodeSceneProjection(committed);
 const content = params.get("content") === "none" ? undefined : fixtureContent({
   lighting: params.has("lighting"),
+  occlusion: params.has("occlusion"),
   failure: params.get("failure") ?? undefined,
   // Decision: cap this fixture-only stress knob at 50ms; 40ms exceeds the product's 33.4ms budget.
   workMs: Math.min(50, Math.max(0, Number(params.get("workMs") ?? 0))),
@@ -27,6 +29,14 @@ const adapter = new ThreeWorldSceneAdapter(parent, () => {
   // Match the client measurement ring: retain only the latest 512 observations.
   if (reports.length > 512) reports.shift();
 }, content);
+
+// #266: the page offers selection and writes the text path's line naming who is hidden, as the shell does.
+const occlusion = document.querySelector<HTMLElement>("#occlusion")!;
+adapter.onIntent(({ objectId }) => adapter.setSelection(objectId));
+adapter.onOcclusion((reveal) => {
+  const entity = reveal && snapshot.entities.find((candidate) => candidate.objectId === reveal.objectId);
+  occlusion.textContent = reveal && entity ? occlusionText(entity.presentation.label, reveal.behind) : "";
+});
 
 const setEnvironment = (timeMs: bigint | number, rainIntensity: number) => {
   const simulationTime = typeof timeMs === "bigint" ? timeMs : BigInt(Math.round(timeMs));
@@ -61,6 +71,14 @@ const api = {
     return internal.renderer.domElement.toDataURL("image/png");
   },
   setContentAnchor(x: number, y: number) { diagnostics.setAnchor(x, y); },
+  select(objectId?: string) { adapter.setSelection(objectId as any); },
+  /** Move the projected marker to frame metres (x, y), as a committed move would. */
+  moveMarker(x: number, y: number) {
+    const coordinates = [String(Math.round(x * 100)), String(Math.round(y * 100)), "0"];
+    snapshot = { ...snapshot, entities: snapshot.entities.map((entity) =>
+      ({ ...entity, pose: { ...entity.pose, coordinates } })) };
+    adapter.loadSnapshot(snapshot);
+  },
   setModelAnchor(x: number, y: number) { diagnostics.setModelAnchor(x, y); },
   setDepthEnabled(enabled: boolean) {
     if (!diagnostics.sprite) return;

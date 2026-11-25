@@ -161,6 +161,19 @@ export interface RendererContentContact {
   readonly widthMetres: number;
   readonly depthMetres: number;
 }
+/**
+ * #266: world presentation data for the occlusion policy. A `fade` occluder (a canopy, a roof) may
+ * fade to reveal the selected character behind it; a `solid` one (a trunk, a post, a wall) never
+ * changes, and the character shows as a faint silhouette through it. `label` names it on the text
+ * path ("Ada is behind the cedar."), so it reads after "behind".
+ */
+export interface RendererContentOccluder {
+  /** An object inside the content root; its meshes are tested and, for `fade`, faded. */
+  readonly object: THREE.Object3D;
+  readonly kind: "fade" | "solid";
+  /** Plain text, 1 to 80 characters. */
+  readonly label: string;
+}
 export interface RendererContentInstance {
   readonly root: THREE.Group;
   /** Renderer-owned, unshadowed point lights, admitted in array order within the tier cap. */
@@ -169,6 +182,8 @@ export interface RendererContentInstance {
   readonly shadows?: boolean;
   /** Ground content with the projected bodies' contact shape, on every tier (#266). */
   readonly contacts?: readonly RendererContentContact[];
+  /** Content a character can stand behind; others are depth-true and never fade (#266). */
+  readonly occluders?: readonly RendererContentOccluder[];
   /** Register textures hidden inside deferred shader callbacks for accounting and retirement. */
   readonly textures?: readonly THREE.Texture[];
   /** Update only owned objects. Use absolute time, including zero when motion is reduced. */
@@ -262,6 +277,7 @@ export function validateContent(root: THREE.Group): boolean {
 export function validateContentLighting(instance: RendererContentInstance): boolean {
   if (instance.shadows !== undefined && typeof instance.shadows !== "boolean") return false;
   if (!validContacts(instance.contacts)) return false;
+  if (!validOccluders(instance)) return false;
   if (instance.lights === undefined) return true;
   // #184: bound validation work even when a content producer supplies more lights than a tier admits.
   if (!Array.isArray(instance.lights) || instance.lights.length > 64) return false;
@@ -582,4 +598,43 @@ function validContacts(contacts: RendererContentInstance["contacts"]): boolean {
       bounded(contact.depthMetres, 1000) &&
       contact.depthMetres > 0,
   );
+}
+
+/**
+ * #266: at most 64 occluders, each an object inside the content root with a plain-text label, and
+ * no material shared between a fade and a solid occluder, so fading a canopy never fades a trunk.
+ */
+function validOccluders(instance: RendererContentInstance): boolean {
+  const occluders = instance.occluders;
+  if (occluders === undefined) return true;
+  if (!Array.isArray(occluders) || occluders.length > 64) return false;
+  const kinds = new Map<THREE.Material, "fade" | "solid">();
+  for (const occluder of Array.from(occluders)) {
+    if (
+      !occluder ||
+      !(occluder.object instanceof THREE.Object3D) ||
+      (occluder.kind !== "fade" && occluder.kind !== "solid") ||
+      typeof occluder.label !== "string" ||
+      occluder.label.trim().length === 0 ||
+      occluder.label.length > 80 ||
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: labels are plain text.
+      /[\u0000-\u001f\u007f<>]/u.test(occluder.label)
+    )
+      return false;
+    let inside = false;
+    for (let object: THREE.Object3D | null = occluder.object; object; object = object.parent)
+      if (object === instance.root) inside = true;
+    if (!inside) return false;
+    let shared = false;
+    occluder.object.traverse((child: THREE.Object3D) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      for (const material of Array.isArray(child.material) ? child.material : [child.material]) {
+        const kind = kinds.get(material);
+        if (kind !== undefined && kind !== occluder.kind) shared = true;
+        kinds.set(material, occluder.kind);
+      }
+    });
+    if (shared) return false;
+  }
+  return true;
 }
