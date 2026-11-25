@@ -391,14 +391,17 @@
     {
       "id": "S16",
       "scenario": "a continuously_eligible actor process survives eviction and deployment through bounded segments, checkpoints, lease epochs, budgets, and one stable process ID without requiring a resident isolate",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
           "marker": "// ActorProcess: a stable process ID across bounded segments, checkpoints and lease epochs."
+        },
+        {
+          "file": "apps/runtime/test/turn-fibers.journey.postgres.test.ts",
+          "marker": "// ActorProcess: a continuously_eligible process keeps its budgets across a deployment."
         }
-      ],
-      "deviation": "Proven: one stable process ID across three segments, checkpoints 4/8/10, lease epochs 1/2/3 with owner replacement between and a stale-lease insert rejected. Not proven: the continuously_eligible eligibility mode by name (appears only in a domain spatial test), process budgets, survival across a deployment (only owner.replace), and absence of a resident isolate."
+      ]
     }
   ],
   "crashMatrix": [

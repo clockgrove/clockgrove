@@ -158,14 +158,22 @@ policy's current `allowModel` and `modelBudget` and the revoked list plus that c
 
 `ActorProcess` (`packages/contracts/src/turn-fibers.ts`) is the contract for long-lived actor work
 (Wave 5 §1). A process has a stable ID for its actor's life, one objective, a checkpoint, a lease
-epoch, and a sequence of bounded run segments (`actor_processes` and `actor_process_segments`,
-0038).
+epoch, a mode, a budget, and a sequence of bounded run segments (`actor_processes` and
+`actor_process_segments`, 0038 and 0079).
 
 - `ActorAgentDO.advanceProcess` runs one segment. It claims the next lease epoch, then appends one
   segment from the current checkpoint.
 - The segment trigger refuses a write under an older epoch or holder (`CG022`). It also refuses a
   write that does not continue the checkpoint, and it moves the checkpoint itself.
-- Decision: at most 64 segments a process.
+- A process's mode is `reactive`, `scheduled` or `continuously_eligible`. A `continuously_eligible`
+  process is admitted for its next segment at once, without waiting for an event.
+- Its budget is fixed at start, like its objective: the segments it may run (at most 64, the
+  default) and the checkpoint steps one segment may advance (at most 10,000, the default).
+  `advanceProcess` clamps a segment to the step budget. The segment trigger refuses a segment past
+  either limit (`CG025`), and a process whose segments are spent takes no new lease. The call then
+  answers the unchanged process with `refusal: "process_budget_exhausted"`.
+- Nothing about a process is resident: each segment reads its lease, checkpoint and budget from
+  PostgreSQL, so the process carries on across owner restarts and deployments.
 - The only objective today is the `fixture-tally` fixture. Only the native test entry calls it.
 - Proactive activations use the same turn fiber, as described below.
 
@@ -184,6 +192,8 @@ for each turn and phase. Production has no such hook. The journey proves these c
 - An owner that lost its local storage recovers.
 - The capability hook works.
 - An `ActorProcess` keeps its ID across segments, owner restarts and lease epochs.
+- A `continuously_eligible` process keeps its budgets and carries on after a deployment: the native
+  runtime is disposed and its local storage deleted between two segments.
 
 ## Known gaps
 
