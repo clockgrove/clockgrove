@@ -26,3 +26,46 @@ Existing fixture and playground scenarios declare no surfaces. Their commands, e
 ## Part 2: the carried-matter drain
 
 Part 2 adds one event, `surface.carried-drained@1`, and its reducer. The regenerated bundles were compared structurally after decoding the canonical form: each of the 16 goldens above differs only by that one entry added to `kernel.events` and `kernel.reducers` and by the derived `bundleHash`. No entry was removed, and commands, events, final state, assertions, material hashes, pack artifacts and equivalence results are unchanged. No scenario declares surfaces, so the rain and growth drivers, region traffic and the drain change no physical output.
+
+## Part 4: the fixture world's surfaces
+
+Part 4 declares `policy.surfaces` in the reference fixture (`clockgrove.fixture-hall`): a scratchable cedar
+bark (`wear` by sight, `scent` by smell, a four-mark ring), a fence-line path on `street-buffer` worn by
+traffic, muddy prints on the porch (carried `mud` deposited by traffic, washed by rain) and a diggable
+garden bed (mud picked up by traffic, a `depth` channel with `scraped`, `shallow` and `deep` bands), with
+senses for the resident and dependent kinds. The fixture's `fixture.inspect` capability, held by the
+keeper, also declares `surface.interact@1`, so scenarios can act through it. The pack's content hash,
+resource manifest hash and seed projection hash change, so every reference golden changes there and in
+its genesis hashes. The beacon fixture and the playground are unchanged.
+
+Each regenerated reference golden was compared structurally with its predecessor after decoding the
+canonical form: for every run, the final state without `surfaces` and `revision` is equal, and the
+events are equal once the optional `surfaces` and `notices` fields of `movement.region-entered`, the
+`surface.*` events and `resource.weather-integrated` are set aside. The added events are exactly:
+
+- `surface.band-crossed`, where tracked mud on the porch or the garden bed washes out of a band under
+  rain. Each crossing is an advance barrier, so the weather integration of the water bowl is split at
+  it: one more `resource.weather-integrated` per crossing, with the bowl's water and every other state
+  value unchanged.
+- `surface.carried-drained` (cause `died`) right after an actor's `lifecycle.died` when it died carrying
+  mud: the declared drain of carried matter.
+
+| Scenario | Reviewed change |
+| --- | --- |
+| birth-and-parentage | Pack and genesis hashes; surface state; traffic and notices on entries into surfaced regions; 2 mud band crossings (+2 split weather integrations) in each run. |
+| boundary-walk | As above: 2 crossings (+2 integrations) in each run. |
+| cedar-growth | As above: 2 crossings (+2 integrations) in each run. |
+| death-and-successor | As above: 2 crossings (+2 integrations); the keeper's carried mud is drained at its death. |
+| differential-perception, favorite-snack-house, fence-gap-portal, food-decay-and-conservation, rain-shelter-comfort, social-learning, street-dwell, walk-out-of-den | Pack and genesis hashes; surface state; traffic and notices on entries into surfaced regions, where the scenario walks there; no added event. |
+| months-fast-forward | As death-and-successor, in both runs. |
+| walk-crossings | 4 crossings (+4 integrations) and the drain at the keeper's death in `main` and `offline`. The death walk's step now journals 20 events, not 19 (the drain); its two event-count assertions were updated to 20. |
+| surface-marks (new) | The completion experience: a scratch moves the bark into `scratched` with an attributable mark; the companion notices it by sight and scent and the dependent by scent alone, each naming the keeper; mud moves 100 from the bed to the keeper and 60 onto the porch with a print (conserved); two digs reach `shallow`; scent fades at 4 h, the bark heals out of `scratched` in bright light, rain washes the porch clean, exactly five crossings with no per-tick events; one-call and hourly advances journal the same surface events; replay matches. |
+
+Outside the goldens, the decision-shadow journey's final state hash of a reference-fixture day becomes
+`8134921563bfcc1e5251231833e6077bf97b9c5bfa558e7c5cad0d5dc1697321`: its state now holds the declared surfaces.
+No assertion is widened.
+The Journal parity run lists `surface-marks` with the other committed scenarios, so it also runs through
+PostgreSQL and must match the pure simulator. The activations journey's long fixture run journals the
+fixture's mud crossings and their split weather integrations, so its later needs crossings sit four and
+five partition events further on (`event:1056`, `event:3050`, formerly `1052` and `3045`), with the same
+actors, needs and wake outcomes.

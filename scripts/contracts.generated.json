@@ -2,7 +2,7 @@
   "files": {
     "actor-address.ts": "fa2e9ba9deac63a651203c3049ca455c57370c7d3b021bca019e05839c3d0814",
 
-    "asset-manifest.ts": "24751aa03f5be16a8d2b6036160001e1b26691f4dd8d8c4e714b3d45328e4a57",
+    "asset-manifest.ts": "2a8ee2f9ee7bf9bb83092b34ed10ce5c202888b7887de9c4517639627aa0efd2",
 
     "asset-style-profile.ts": "a46acfbe662b7c21474f42e452a24f36681000746339e39c3afc4a903dc6f61e",
 
@@ -24,7 +24,7 @@
 
     "ids.ts": "9169d66a2fc1c396180a72952d25243c15134e5225d0821a453a04c51a5c4559",
 
-    "index.ts": "65220ffb03945ca336cfadeadd159b71eb5232c653b4e7d8566a7c166ed28b25",
+    "index.ts": "ba827141ad152a89fd0d4b0005c58e774f63bd1164414e2093daa130ce549539",
 
     "journal-records.ts": "025e8d7cbd49e52ebc86774612437350b31e78c8868bc035c9138cfa9d1dd9c7",
 
@@ -42,11 +42,13 @@
 
     "scene-arrival.ts": "d7a8b2ac7b624603d7f05813501bc530e5310384facf01a555372e87138eb83f",
 
-    "scene-connection.ts": "8cc378383f635b614dcb31c4eaff8638abc937578ecac7808d9fa79df4a30b49",
+    "scene-connection.ts": "f87c4c2456989a93872e35c3de3aed7887830b60c393e43d006927df9ea00206",
 
     "scene-interactions.ts": "15d4bb58c8347916087293a2e868decdbab34ce4335893067679df5aedf08603",
 
-    "scene-protocol.ts": "fbaebfd471f63c49f7f335718cca0bd9b1d267084a644d13fbb343079ccc0b1e",
+    "scene-protocol.ts": "94327a0888082487710432ac8c2246cfa6fb99a7574ea5cf7a0908d2e50f9636",
+
+    "scene-surfaces.ts": "08ed3dac5f816bce20c8b9ca40fb41cfac01308dcc24ebedb943b5b025d06932",
 
     "spatial-units.ts": "09b7b35d8f9524b55be43f301d23500b3107dfe21bd0b76321b0e4bef2016248",
 

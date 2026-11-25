@@ -108,6 +108,29 @@ describe("conformance negative controls", () => {
     ]);
   });
 
+  it("refuses surface treatments the pack does not declare and a decal budget too small for its marks", async () => {
+    const pack = await loadPack(join(WORLDS_ROOT, "fixture", "reference"));
+    const directory = await mkdtemp(join(tmpdir(), "clockgrove-surface-control-"));
+    temporary.push(directory);
+    const presentation = JSON.parse(
+      await readFile(join(pack.directory, "presentation.json"), "utf8"),
+    );
+    // The bark (4 marks), porch (4) and bed (3) draw marks at medium: 11 decals, one over 10.
+    presentation.surfaces.decals.medium = 10;
+    presentation.surfaces.zones.push({ zoneId: "attic-floor", label: "The attic floor" });
+    presentation.surfaces.treatments.push({
+      ...presentation.surfaces.treatments[0],
+      band: "charred",
+    });
+    await writeFile(join(directory, "presentation.json"), JSON.stringify(presentation));
+    const failure = await failureOf(() => checkPresentationBindings({ ...pack, directory }));
+    expect(failure.problems.map(({ check, detail }) => `${check}: ${detail}`)).toEqual([
+      "presentation-bindings: surfaces.zones[4]: attic-floor is not a zone of the pack",
+      "presentation-bindings: surfaces.treatments[7]: wear/charred is not a band of the pack",
+      "presentation-bindings: surfaces.decals.medium: SURFACE_DECAL_BUDGET_EXCEEDED: 11 marks, budget 10",
+    ]);
+  });
+
   it(
     "fails a mismatched golden and writes the actual bundle beside it",
     async () => {

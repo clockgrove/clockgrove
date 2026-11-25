@@ -417,6 +417,24 @@ function processWorldIdentity(state: WorldState): string {
 
 let activeProcessVerdicts: Map<CommandId, ValidatedProcessVerdict> | undefined;
 
+/** The events `surface.journaled` checks against the state before them. */
+function surfaceChecked(type: string): boolean {
+  return (
+    type.startsWith("surface.") ||
+    type === "lifecycle.died" ||
+    type === "weather.changed" ||
+    type === "weather.transitioned" ||
+    type === "movement.region-entered"
+  );
+}
+/**
+ * The working state before each surface-checked event the call being executed emitted, by its
+ * revision, so `surface.journaled` need not replay the command's events again (each replayed
+ * event validates the whole state twice). Like the process verdicts it lives for one
+ * `executeWorldKernel` call only; standalone verification has none and replays every event.
+ */
+let activeSurfaceStates: Map<bigint, WorldState> | undefined;
+
 function withProcessVerdicts<T>(
   verdicts: Map<CommandId, ValidatedProcessVerdict> | undefined,
   run: () => T,
@@ -1229,6 +1247,10 @@ function runWorld(
     )
       throw new RangeError("event adoption budget or deterministic index exhausted");
     const affected = reconcileShelter ? shelterTransition(event) : [];
+    if (activeSurfaceStates !== undefined && surfaceChecked(event.type)) {
+      const before = current();
+      activeSurfaceStates.set(before.revision, before);
+    }
     context.emit(event);
     for (const change of affected) {
       emit({ ...event, type: "location.changed", payload: change } as WorldEvent);
@@ -3700,23 +3722,30 @@ function checkRegisteredWorldInvariants(
   if (!WORLD_KERNEL.ok) return WORLD_KERNEL.error;
   const kernel = WORLD_KERNEL.kernel;
   const subject = Object.freeze({ payload, initial, state: final, events });
-  return withProcessVerdicts(undefined, () =>
-    withActivePolicy(policy, () => {
-      for (const invariant of kernel.definition.invariants.ordered(
-        commandType ?? "world.advance",
-      )) {
-        if (commandType === undefined && invariant.commands !== undefined) continue;
-        const name = `${invariant.name}@${invariant.version}`;
-        try {
-          const offending = invariant.check(subject);
-          if (offending !== undefined) return refusal("invariant-violated", offending, name);
-        } catch {
-          return refusal("check-error", "invariant", name);
+  // Standalone verification replays every event: no execution's recorded states apply.
+  const previousSurfaceStates = activeSurfaceStates;
+  activeSurfaceStates = undefined;
+  try {
+    return withProcessVerdicts(undefined, () =>
+      withActivePolicy(policy, () => {
+        for (const invariant of kernel.definition.invariants.ordered(
+          commandType ?? "world.advance",
+        )) {
+          if (commandType === undefined && invariant.commands !== undefined) continue;
+          const name = `${invariant.name}@${invariant.version}`;
+          try {
+            const offending = invariant.check(subject);
+            if (offending !== undefined) return refusal("invariant-violated", offending, name);
+          } catch {
+            return refusal("check-error", "invariant", name);
+          }
         }
-      }
-      return undefined;
-    }),
-  );
+        return undefined;
+      }),
+    );
+  } finally {
+    activeSurfaceStates = previousSurfaceStates;
+  }
 }
 
 /**
@@ -3737,9 +3766,16 @@ export function executeWorldKernel(
       (policy?.processes?.length ?? 0) > 0
         ? new Map<CommandId, ValidatedProcessVerdict>()
         : undefined;
-    const outcome = withProcessVerdicts(verdicts, () =>
-      withActivePolicy(policy, () => kernel.execute(input, options)),
-    );
+    const previousSurfaceStates = activeSurfaceStates;
+    activeSurfaceStates = policy?.surfaces === undefined ? undefined : new Map();
+    let outcome;
+    try {
+      outcome = withProcessVerdicts(verdicts, () =>
+        withActivePolicy(policy, () => kernel.execute(input, options)),
+      );
+    } finally {
+      activeSurfaceStates = previousSurfaceStates;
+    }
     if (!outcome.ok) return outcome;
     const { extra, ...execution } = outcome.result;
     if (extra === undefined)
@@ -5069,9 +5105,25 @@ function surfaceJournalDisagreement(
           (event.type === "movement.region-entered" && event.payload.notices !== undefined))),
   );
   if (surfaces === undefined) return first < 0 ? undefined : `events[${first}]`;
+  // Only checked events need the state before them: it is the executing call's recorded working
+  // state when there is one for that revision, else the replay of the events before it.
   let state = initial;
+  let applied = 0;
   for (const [index, event] of events.entries()) {
+    if (!surfaceChecked(event.type)) continue;
     try {
+      const recorded = activeSurfaceStates?.get(initial.revision + BigInt(index));
+      if (recorded !== undefined && index >= applied) {
+        state = recorded;
+        applied = index;
+      }
+      for (; applied < index; applied++) {
+        try {
+          state = reduceWorldEvent(state, events[applied]!);
+        } catch {
+          return `events[${applied}]`;
+        }
+      }
       if (event.type === "surface.interacted") {
         const planned = planSurfaceInteraction(
           surfaces,
@@ -5198,7 +5250,6 @@ function surfaceJournalDisagreement(
         )
           return `events[${index}]`;
       }
-      state = reduceWorldEvent(state, event);
     } catch {
       return `events[${index}]`;
     }

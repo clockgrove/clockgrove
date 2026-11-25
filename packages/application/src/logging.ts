@@ -118,6 +118,7 @@ export type RuntimeResponseCode =
   | "noop_command_failed"
   | "world_command_failed"
   | "inspection_failed"
+  | "surface_decal_budget_exceeded"
   | "invalid_runtime_action"
   | "message_not_found"
   | "publication_not_failed"

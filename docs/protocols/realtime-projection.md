@@ -83,8 +83,8 @@ version 1 through `set_compatibility` must not carry `set_effects`. Any other pr
 refused with `unsupported_projection_version`. A version-1 client therefore refuses a version-2
 snapshot or patch with that stable code and its recovery surface, instead of a generic field error.
 
-Optional fields and patch operations may be added within a projection version, as `lighting` and
-`movements` (with `set_movements`) were added within version 2; the version is bumped only for a
+Optional fields and patch operations may be added within a projection version, as `lighting`,
+`movements` (with `set_movements`) and `surfaces` (with `set_surfaces`) were added within version 2; the version is bumped only for a
 change an existing field or operation can't absorb, and decoders still accept just the current and
 one prior version. A client built before such an addition refuses a projection that carries the new
 field with a generic decode error rather than `unsupported_projection_version`. This is accepted
@@ -126,6 +126,19 @@ not carry it, nor a version-1 patch `set_movements`. `set_movements` replaces th
 carries it only when the projection has the field or had it. The client draws a pose change as a
 walk when the entity's movement is active or changed between the two projections, and as a cut
 otherwise ([isometric scene](../../apps/web/docs/scene.md#isometric-rules-92)).
+
+The optional `surfaces` field carries the installed pack's graded surfaces as the scene shows them
+(issue 267): the presentation's per-tier decal budgets and each labelled zone whose host is in the
+scene, with its settled channels and bands, the treatments of its current bands, its recent marks and
+its text-path sentence ([surface treatments](world-presentation.md#surface-treatments-267)). It is
+absent when the installed presentation binds no surface, names only projected objects as hosts and
+as mark actors (a mark left by an actor the scene does not project carries `actorId: null`, and the
+sentence then names no one), and is projection version 2 like `effects`. `set_surfaces` replaces it
+whole (`null` removes it); a patch carries it only when the projection has the field or had it. A
+client applying a patch drops a zone whose host object the patch removed, nulls a removed mark
+actor and, when that actor left the zone's most recent mark, drops the sentence's closing "most
+recently by" clause, so the applied scene still names only projected entities until the next
+`set_surfaces`.
 
 A successor patch carries `fromRevision`, `toRevision`, ordered closed operations, authorized
 source event IDs and audience hash. Revisions must advance. Operations name the public snapshot
@@ -475,8 +488,9 @@ connection. Admission alone delivers no projection and therefore cannot establis
 
 Server `recovery` reasons are `snapshot_required`, `revision_unavailable`,
 `asset_manifest_changed`, `backpressure` and `runtime_restarted`. Server `disconnect` reasons
-are `malformed_control`, `unsupported_protocol`, `unauthorized`, `stale_authority_epoch` and
-`internal_error`. Notices contain typed reasons, never exception details. Strict codecs reject
+are `malformed_control`, `unsupported_protocol`, `unauthorized`, `stale_authority_epoch`,
+`surface_decal_budget_exceeded` (the runtime's presentation cannot hold the installed pack's marks,
+`SURFACE_DECAL_BUDGET_EXCEEDED`; closed 1011 like `internal_error`) and `internal_error`. Notices contain typed reasons, never exception details. Strict codecs reject
 unknown fields, wrong directions, unsupported versions and malformed revisions. Revisions use
 bigint internally and decimal strings on the wire. Parsing catches JSON syntax failures;
 unexpected internal exceptions remain internal failures.

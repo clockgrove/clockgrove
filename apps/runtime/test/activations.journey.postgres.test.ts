@@ -622,7 +622,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
            WHERE event_type = 'needs.threshold-crossed'`,
         ),
       ).toBe(
-        "crossings:event:294=fixture.companion:hunger crossings:event:1052=child_f49de9971bf27e7d:hunger crossings:event:3045=fixture.dependent:thirst",
+        "crossings:event:294=fixture.companion:hunger crossings:event:1056=child_f49de9971bf27e7d:hunger crossings:event:3050=fixture.dependent:thirst",
       );
       await expect
         .poll(
@@ -634,7 +634,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           { timeout: 120_000, interval: 500 },
         )
         .toBe(
-          "companion-hunger=journal:crossings:event:294/noop dependent-thirst=journal:crossings:event:3045/noop",
+          "companion-hunger=journal:crossings:event:294/noop dependent-thirst=journal:crossings:event:3050/noop",
         );
       expect(
         await owner.sql(

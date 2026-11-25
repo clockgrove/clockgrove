@@ -1,6 +1,7 @@
 import { decodeOpaqueId, type ObjectId } from "./ids.js";
 import { type AssetMaterial, decodeAssetMaterial } from "./material.js";
 import { decodeScenePresentationBinding, type ScenePresentationBinding } from "./scene-protocol.js";
+import { decodePackSurfacePresentation, type PackSurfacePresentation } from "./scene-surfaces.js";
 import {
   array,
   ContractDecodeError,
@@ -476,6 +477,8 @@ export interface PackPresentation {
   /** Each binding has the wire `ScenePresentationBinding` shape; `animationFamily` is the default. */
   readonly bindings: readonly ScenePresentationBinding[];
   readonly effects: readonly PackPresentationEffect[];
+  /** How the pack's graded surfaces look (issue 267); absent when the pack binds none. */
+  readonly surfaces?: PackSurfacePresentation;
 }
 
 export function decodePackPresentation(value: unknown, path = "presentation"): PackPresentation {
@@ -483,7 +486,7 @@ export function decodePackPresentation(value: unknown, path = "presentation"): P
   exactKeys(
     v,
     ["presentationVersion", "assetManifestVersion", "pack", "bindings", "effects"],
-    [],
+    ["surfaces"],
     path,
   );
   literalVersion(v.presentationVersion, PACK_PRESENTATION_VERSION, `${path}.presentationVersion`);
@@ -528,5 +531,16 @@ export function decodePackPresentation(value: unknown, path = "presentation"): P
     }),
     bindings,
     effects,
+    ...(v.surfaces === undefined
+      ? {}
+      : { surfaces: deepFreeze(decodePackSurfacePresentation(v.surfaces, `${path}.surfaces`)) }),
   });
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const item of Object.values(value)) deepFreeze(item);
+  }
+  return value;
 }

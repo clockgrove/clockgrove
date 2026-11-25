@@ -160,3 +160,81 @@ it("delivers every channel to an adapter while an albedo-only client selects den
   };
   expect(() => decodeSceneMaterialDelivery(invalid)).toThrow("frame exceeds texture bounds");
 });
+
+// Issue 267: a scratch reaches an open scene as `set_surfaces`; the adapter replaces the surfaces
+// whole, drops a zone whose host object left the scene and stops naming a marker that left it.
+it("applies set_surfaces patches and keeps surfaces to the projected scene", () => {
+  const tiers = {
+    low: { tint: "#c9a27a", opacity: 0.35, marks: false },
+    medium: { tint: "#c9a27a", opacity: 0.45, marks: true },
+    high: { tint: "#c9a27a", opacity: 0.5, marks: true },
+  };
+  const mark = { actorId: "keeper", at: 5n, intensity: 10000, point: { u: 3000, v: 7000 } };
+  const zone = {
+    channels: [{ channel: "wear", value: 300, max: 1000, bands: ["scratched"] }],
+    treatments: [{ channel: "wear", band: "scratched", tiers }],
+    marks: [mark],
+  };
+  const surfaces = {
+    decals: { low: 0, medium: 12, high: 24 },
+    zones: [
+      {
+        ...zone,
+        zoneId: "coat",
+        label: "The keeper's coat",
+        host: { kind: "object", objectId: "keeper" },
+        sentence: "The keeper's coat is scratched; most recently by Keeper.",
+      },
+      {
+        ...zone,
+        zoneId: "floor",
+        label: "The hall floor",
+        host: {
+          kind: "region",
+          regionId: "hall",
+          frameId: "hall-frame",
+          frameVersion: 1,
+          min: ["0", "0"],
+          max: ["100", "100"],
+        },
+        sentence: "The hall floor is scratched; most recently by Keeper.",
+      },
+    ],
+  };
+  const projection = snapshot.payload;
+  const step = (from: typeof projection, operations: unknown[]) =>
+    applyScenePatch(
+      from,
+      decodeScenePatch({
+        fromRevision: from.revision,
+        toRevision: from.revision + 1n,
+        sourceEventIds: [],
+        audienceHash: from.audienceHash,
+        operations: operations.map((operation) =>
+          JSON.parse(
+            JSON.stringify(operation, (_key, value) =>
+              typeof value === "bigint" ? value.toString() : value,
+            ),
+          ),
+        ),
+      }),
+    );
+  const scratched = step(projection, [{ op: "set_surfaces", surfaces }]);
+  expect(scratched.surfaces).toEqual(surfaces);
+  // The keeper leaves: its coat's zone goes with it, and the floor's mark no longer names it.
+  const left = step(scratched, [
+    { op: "remove_entity", objectId: "keeper" },
+    ...projection.presentationBindings.map((binding) => ({
+      op: "remove_presentation",
+      objectId: binding.objectId,
+    })),
+    ...projection.interactions.map((interaction) => ({
+      op: "remove_interaction",
+      objectId: interaction.entityId,
+    })),
+  ]);
+  expect(left.surfaces?.zones.map((item) => item.zoneId)).toEqual(["floor"]);
+  expect(left.surfaces?.zones[0]?.marks).toEqual([{ ...mark, actorId: null }]);
+  expect(left.surfaces?.zones[0]?.sentence).toBe("The hall floor is scratched.");
+  expect(step(scratched, [{ op: "set_surfaces", surfaces: null }])).not.toHaveProperty("surfaces");
+});

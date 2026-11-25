@@ -162,6 +162,7 @@ import {
 } from "./owners.js";
 import { runtimeRouteName } from "./routing.js";
 import { RunNotFoundError } from "./runs.js";
+import { SurfaceDecalBudgetRefusedError } from "./scene-presentation.js";
 import type {
   IdentifiedRuntimeRequest,
   TrustedRuntimeRequestAuthenticator,
@@ -391,6 +392,7 @@ const CODE_OUTCOMES: Readonly<Record<RuntimeResponseCode, RuntimeLogOutcome>> = 
   noop_command_failed: "failed",
   world_command_failed: "failed",
   inspection_failed: "failed",
+  surface_decal_budget_exceeded: "failed",
   invalid_runtime_action: "refused",
   message_not_found: "refused",
   publication_not_failed: "refused",
@@ -1562,7 +1564,10 @@ export class RuntimeWorker {
       refuse: (error) =>
         error instanceof JournalRouteNotFoundError
           ? refusal(note, "world_not_ready", 409)
-          : entryRefusal(note, error),
+          : // The runtime's presentation cannot hold the pack's marks: a server fault, its own code.
+            error instanceof SurfaceDecalBudgetRefusedError
+            ? failure(note, error, "surface_decal_budget_exceeded", 500)
+            : entryRefusal(note, error),
       unavailable: "inspector_unavailable",
       failed: ["inspection_failed", "causal_chain_inspection_failed"],
     });

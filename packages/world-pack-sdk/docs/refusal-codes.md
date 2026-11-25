@@ -9,7 +9,7 @@
 `RESOURCE_IDENTITY_MISMATCH`, `MISSING_CLOCK_POLICY`, `DUPLICATE_CLOCK_POLICY`,
 `INVALID_CLOCK_POLICY`, `MISSING_RANDOM_STREAM`, `UNSUPPORTED_RANDOM_ALGORITHM`,
 `INVALID_RANDOM_STREAM`, `INVALID_ASSET`, `INVALID_PROVENANCE`, `INVALID_HASH`, `LIMIT_EXCEEDED`, `INVALID_SPACE`, `INVALID_RULE`, `INVALID_CAPABILITY`,
-`UNKNOWN_CAPABILITY`, `UNKNOWN_COMMAND`, `INVALID_SEED_COMMAND`, `INVALID_POLICY`,
+`UNKNOWN_CAPABILITY`, `UNKNOWN_COMMAND`, `INVALID_SEED_COMMAND`, `INVALID_POLICY`, `SURFACE_BUDGET_EXCEEDED`,
 `INVALID_MIGRATION`, `AMBIGUOUS_MIGRATION`, `MIGRATION_GAP`, `UNSUPPORTED_MIGRATION`,
 `INVALID_MIGRATION_CURSOR`, `DUPLICATE_POLICY`, `UNKNOWN_SPACE`, `INVALID_PLACEMENT`, `UNSUPPORTED_POLICY`,
 `UNKNOWN_PARENT`, `PARENT_CYCLE` (the semantic place hierarchy, see [collections](collections.md)), plus the domain composition codes
@@ -35,6 +35,12 @@ A rule that offers unbacked inventory is `INVALID_RULE` at
 Ordinary runtime offers and positive-inventory object creation are kernel
 `precondition-failed` refusals with check `resource.closed-world@1`; see
 [containment](../../kernel/docs/containment.md).
+
+A behaviour policy whose surfaces exceed their own declared budget (more zones than `budgets.zones`, or
+a zone whose `markCapacity` exceeds `budgets.marksPerZone`) is `SURFACE_BUDGET_EXCEEDED` at
+`manifest.policies[i]#policy.surfaces.zones` or `...#policy.surfaces.zones[j].markCapacity`: the domain
+refusal with check `surface.budget@1` ([surfaces](../../domain/docs/surfaces.md)). A malformed surface
+declaration is `INVALID_POLICY` at its path. Nothing is dropped to fit a budget.
 
 Seed commands that offer unbacked material or create an object with positive resource inventory
 are `INVALID_SEED_COMMAND` at `manifest.seedCommands[i].payload`. Initial inventory belongs in

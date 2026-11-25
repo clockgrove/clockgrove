@@ -169,8 +169,9 @@ entering object applies, wearing a path or tracking mud.
 
 The numbers are an example's authored choices: healing speed is pack data. More zones than
 `budgets.zones`, or a zone whose `markCapacity` exceeds `budgets.marksPerZone`, is refused as
-`INVALID_POLICY` at `#policy.surfaces.zones` or `#policy.surfaces.zones[i].markCapacity`, with a
-message naming `surface.budget@1`; nothing is dropped. Genesis seeds each zone at its `initial`
+`SURFACE_BUDGET_EXCEEDED` at `#policy.surfaces.zones` or `#policy.surfaces.zones[i].markCapacity`,
+with a message naming `surface.budget@1` ([refusal codes](refusal-codes.md)); a malformed surface
+declaration is `INVALID_POLICY` at its path. Nothing is dropped. Genesis seeds each zone at its `initial`
 values. See [domain surfaces](../../domain/docs/surfaces.md) for the full declaration and
 [kernel surfaces](../../kernel/docs/surfaces.md) for the commands and healing.
 

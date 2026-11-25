@@ -9,6 +9,7 @@ import {
   type SceneMaterialDelivery,
   type ScenePatch,
   type SceneProjection,
+  type SceneSurfaceZone,
   type SceneTransientCue,
   type WorldObjectId,
 } from "@clockgrove/contracts";
@@ -229,6 +230,33 @@ export function cyclePick(
   };
 }
 
+/**
+ * A zone's sentence once its most recent marker may have left: the runtime ends a sentence naming
+ * that marker with "; most recently by <label>." (its presentation binding's label, else its scene
+ * label), and a client whose patch removed the marker drops that clause, as the next
+ * `set_surfaces` would.
+ */
+function unnamedSentence(
+  zone: SceneSurfaceZone,
+  entities: ReadonlyMap<string, unknown>,
+  before: SceneProjection,
+): string | null {
+  const marker = zone.marks.at(-1)?.actorId ?? null;
+  if (zone.sentence === null || marker === null || entities.has(marker)) return zone.sentence;
+  const labels = [
+    before.presentationBindings.find((binding) => binding.objectId === marker)?.accessibilityLabel,
+    before.entities.find((entity) => entity.objectId === marker)?.presentation.label,
+    marker,
+  ];
+  for (const label of labels) {
+    const clause = `; most recently by ${label}.`;
+    if (label !== undefined && zone.sentence.endsWith(clause)) {
+      return `${zone.sentence.slice(0, -clause.length)}.`;
+    }
+  }
+  return zone.sentence;
+}
+
 /** Apply an already decoded contiguous patch, then validate the complete projected state. */
 export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): SceneProjection {
   const entities = new Map(scene.entities.map((entity) => [entity.objectId, entity]));
@@ -248,6 +276,7 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
   let effects = scene.effects;
   let lighting = scene.lighting;
   let movements = scene.movements;
+  let surfaces = scene.surfaces;
   for (const operation of patch.operations) {
     switch (operation.op) {
       case "upsert_entity":
@@ -304,6 +333,9 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
       case "set_movements":
         movements = operation.movements;
         break;
+      case "set_surfaces":
+        surfaces = operation.surfaces ?? undefined;
+        break;
     }
   }
   const {
@@ -311,6 +343,7 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
     effects: _effects,
     lighting: _lighting,
     movements: _movements,
+    surfaces: _surfaces,
     ...rest
   } = scene;
   const moving = movements?.filter((movement) => entities.has(movement.objectId));
@@ -322,6 +355,24 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
     ...(effects && { effects }),
     ...(lighting && { lighting }),
     ...(moving && moving.length > 0 && { movements: moving }),
+    // A zone on an object the patch removed leaves the scene with it; a removed marker is unnamed,
+    // in its marks and in the sentence.
+    ...(surfaces && {
+      surfaces: {
+        ...surfaces,
+        zones: surfaces.zones
+          .filter((zone) => zone.host.kind === "region" || entities.has(zone.host.objectId))
+          .map((zone) => ({
+            ...zone,
+            marks: zone.marks.map((mark) =>
+              mark.actorId === null || entities.has(mark.actorId)
+                ? mark
+                : { ...mark, actorId: null },
+            ),
+            sentence: unnamedSentence(zone, entities, scene),
+          })),
+      },
+    }),
     revision: patch.toRevision,
     simulationTime,
     weather,

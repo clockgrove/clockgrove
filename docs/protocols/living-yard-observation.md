@@ -467,7 +467,9 @@ under the inspector rate limit (`PostgreSqlCausalInspector.flashbackEvidence`, t
 `recordedWhy`), and the same codes: 400 `invalid_inspection_request`, 401 `authentication_refused`,
 403 `authorization_refused`, 404 `event_not_found` or `command_not_found` (also for an entry with
 no readable event in the space), 409 `world_not_ready`, 429 `inspection_rate_limited`, 500
-`inspection_failed` and 503 `inspector_unavailable`. A decode error after the request has decoded
+`inspection_failed` and 503 `inspector_unavailable`, plus 500 `surface_decal_budget_exceeded` when
+the runtime's presentation cannot hold the installed pack's marks (`SURFACE_DECAL_BUDGET_EXCEEDED`,
+[world presentation](world-presentation.md#surface-treatments-267)). A decode error after the request has decoded
 (reading the recorded evidence, projecting a frame or encoding the answer) is the server's defect:
 500 `inspection_failed`, logged, never 400. It writes nothing but the audit row, sends no
 command and runs no model.

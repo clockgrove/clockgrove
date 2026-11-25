@@ -1,7 +1,11 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { decodeAssetManifest, decodePackPresentation } from "@clockgrove/contracts";
+import {
+  decodeAssetManifest,
+  decodePackPresentation,
+  surfaceDecalRefusal,
+} from "@clockgrove/contracts";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import { CHECKS, type ConformanceProblem, failCheck, throwIfProblems } from "./failure.js";
 import { type LoadedPack, REPO_ROOT } from "./pack-source.js";
@@ -67,5 +71,46 @@ export async function checkPresentationBindings(
     await resolve(`bindings[${index}]`, binding.assetId, binding.animationFamily, binding.objectId);
   for (const [index, effect] of presentation.effects.entries())
     await resolve(`effects[${index}]`, effect.assetId, effect.animationFamily, effect.objectId);
+  if (presentation.surfaces !== undefined) {
+    // Surface bindings name the pack's own zones, channels and bands, and fit their decal budget.
+    const policyEntry = (manifest.policies as Rec[]).find((entry) => {
+      const bytes = pack.resourceBytes[entry.path];
+      return (
+        bytes !== undefined &&
+        (decodeResource(bytes, entry.path) as Rec)?.type === "clockgrove.world-behavior-policy"
+      );
+    });
+    const declared = policyEntry
+      ? (decodeResource(pack.resourceBytes[policyEntry.path]!, policyEntry.path) as Rec).policy
+          ?.surfaces
+      : undefined;
+    if (declared === undefined) add("surfaces: the pack's behaviour policy declares no surfaces");
+    else {
+      const zones = (declared.zones as Rec[]).map((zone) => ({
+        zoneId: zone.id as string,
+        channels: (zone.channels as Rec[]).map((entry) => entry.channel as string),
+        markCapacity: zone.markCapacity as number,
+      }));
+      const channels = new Map(
+        (declared.channels as Rec[]).map((channel) => [
+          channel.id as string,
+          new Set((channel.bands as Rec[]).map((band) => band.name as string)),
+        ]),
+      );
+      for (const [index, zone] of presentation.surfaces.zones.entries())
+        if (!zones.some((item) => item.zoneId === zone.zoneId))
+          add(`surfaces.zones[${index}]: ${zone.zoneId} is not a zone of the pack`);
+      for (const [index, treatment] of presentation.surfaces.treatments.entries())
+        if (!channels.get(treatment.channel)?.has(treatment.band))
+          add(
+            `surfaces.treatments[${index}]: ${treatment.channel}/${treatment.band} is not a band of the pack`,
+          );
+      const refusal = surfaceDecalRefusal(presentation.surfaces, zones);
+      if (refusal !== undefined)
+        add(
+          `surfaces.decals.${refusal.tier}: ${refusal.code}: ${refusal.required} marks, budget ${refusal.budget}`,
+        );
+    }
+  }
   throwIfProblems(problems);
 }

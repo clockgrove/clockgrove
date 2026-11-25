@@ -52,6 +52,14 @@ function domainPath(error: unknown): string {
   return error instanceof DomainValidationError ? error.path : "";
 }
 
+/** The domain names a declared surface budget it refused with the stable check `surface.budget@1`. */
+function surfaceBudgetRefused(error: unknown): boolean {
+  return (
+    error instanceof DomainValidationError &&
+    (error as DomainValidationError & { readonly check?: unknown }).check === "surface.budget@1"
+  );
+}
+
 function deepFreeze<T>(value: T): T {
   if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
     Object.freeze(value);
@@ -354,7 +362,7 @@ export function parseBehaviorPolicy(
     });
   } catch (error) {
     fail(
-      "INVALID_POLICY",
+      surfaceBudgetRefused(error) ? "SURFACE_BUDGET_EXCEEDED" : "INVALID_POLICY",
       `${loc}#${domainPath(error) || "policy"}`,
       error instanceof Error ? error.message : "invalid behaviour policy",
     );

@@ -20,6 +20,13 @@ within that distance, which delays its uncomfortable wetness crossing mid-walk (
 `favorite-snack-house` keeper's remembered snack dish is familiar, so choosing it out of view raises no
 `unperceived-target` planning request (see `cedar-growth`'s `keeper-remembered-*` assertions).
 
+The world remembers what its actors do to it (issue 267): `policy.surfaces` declares a scratchable cedar bark,
+a fence-line path on the street buffer worn by traffic, muddy prints on the porch tracked in from the garden bed,
+and the diggable bed itself, with sight and scent for the residents and scent for the dependent. The keeper's
+`fixture.inspect` binding declares `surface.interact`. `surface-marks` walks through a scratch, the passers-by who
+notice it, tracked mud, digging and healing; `presentation.json` and `runtime.json` bind each zone's bands to a
+treatment per quality tier and a text-path sentence.
+
 Resources are closed-world: five declared household processes move finite initial food/water
 inventory from a disconnected household store through ordinary transfers. The water bowl also
 collects rainfall up to its authored capacity. No scheduled source or unbacked offer refills a
