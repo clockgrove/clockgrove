@@ -1,6 +1,6 @@
 import { decodeScenePatch, type SceneSurfaces } from "@clockgrove/contracts";
 import { expect, it } from "vitest";
-import { surfaceSentences } from "../src/world-scene-adapter.js";
+import { objectSurfacePoint, surfaceSentences } from "../src/world-scene-adapter.js";
 import { snapshot } from "./convergence-fixture.js";
 import { Headless3DAdapter } from "./headless-3d-adapter.js";
 
@@ -124,4 +124,23 @@ it("derives the same surface look for a snapshot, a replay and a set_surfaces pa
   expect(surfaceSentences(surfaces)).toEqual([
     { zoneId: "floor", sentence: "The hall floor is scratched." },
   ]);
+});
+
+// Issue 267: an object-hosted zone's marks lie on the tilted floor (√3 of depth per unit down the
+// screen), so a mark on the near half of the zone stays in front of the depth-writing ground.
+it("keeps every point of an object-hosted zone on the floor's depth", () => {
+  const shape = { x: 40, y: 120, z: 300, span: 64 };
+  const floor = ([, y, z]: [number, number, number]) => z + Math.sqrt(3) * y;
+  const centre = floor(objectSurfacePoint(shape, 0.5, 0.5));
+  for (const [u, v] of [
+    [0, 0],
+    [0.5, 1],
+    [1, 0.9],
+    [0.2, 0.7],
+  ] as const) {
+    const point = objectSurfacePoint(shape, u, v);
+    expect(floor(point)).toBeCloseTo(centre, 9);
+    expect(point[0]).toBeCloseTo(shape.x + (u - 0.5) * shape.span, 9);
+  }
+  expect(objectSurfacePoint(shape, 0.5, 1)[2]).toBeGreaterThan(shape.z);
 });

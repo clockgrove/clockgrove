@@ -59,6 +59,7 @@ import {
   MATERIAL_DELIVERY_BUDGET,
   materialPageCost,
   movement,
+  objectSurfacePoint,
   type PickCycle,
   pickOrder,
   poseMetres,
@@ -145,7 +146,10 @@ export interface SceneMetrics {
   lampStandIns: number;
   /** Contact shapes drawn: one per projected body and one per content contact descriptor (#266). */
   contactShadows: number;
-  /** #267: surface zones drawn, close-range decals drawn, and decals the tier's budget withheld. */
+  /**
+   * #267: surface zones drawn; close-range decals drawn, zero while the camera is below
+   * CLOSE_RANGE_ZOOM and the decal group is hidden; and decals the tier's budget withheld.
+   */
   surfaceZones: number;
   surfaceDecals: number;
   surfaceDecalsWithheld: number;
@@ -498,6 +502,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private drawn = new Map<ObjectId, Drawn>();
   private surfaceMeshes: THREE.Mesh[] = [];
   private surfaceDecalGroup: THREE.Group | undefined;
+  /** #267: close-range decals built in the decal group, drawn only while it is visible. */
+  private surfaceDecalsBuilt = 0;
   private surfaceKey = "";
   private order: ObjectId[] = [];
   effects: { role: string; key: string; sprite: Native; index: number }[] = [];
@@ -1520,7 +1526,10 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.camera.zoom = zoom;
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
-    if (this.surfaceDecalGroup) this.surfaceDecalGroup.visible = zoom >= CLOSE_RANGE_ZOOM;
+    if (this.surfaceDecalGroup) {
+      this.surfaceDecalGroup.visible = zoom >= CLOSE_RANGE_ZOOM;
+      this.metrics.surfaceDecals = this.surfaceDecalGroup.visible ? this.surfaceDecalsBuilt : 0;
+    }
     this.syncContentLighting();
     this.dirty = true;
   }
@@ -2179,6 +2188,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.surfaceDecalGroup?.removeFromParent();
     this.surfaceDecalGroup = undefined;
     this.surfaceKey = "";
+    this.surfaceDecalsBuilt = 0;
     this.metrics.surfaceZones = this.metrics.surfaceDecals = this.metrics.surfaceDecalsWithheld = 0;
   }
   /**
@@ -2262,12 +2272,14 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       zones++;
       decals += zone.decals.length;
       const at = (u: number, v: number): [number, number, number] => {
-        if (!shape.corners)
-          return [
-            shape.x + (u - 0.5) * shape.span,
-            -shape.y - (v - 0.5) * shape.span * 0.5,
-            (shape.z ?? 0) + FLOOR_DECAL_LIFT,
-          ];
+        if (!shape.corners) {
+          const [px, py, pz] = objectSurfacePoint(
+            { x: shape.x, y: shape.y, z: shape.z, span: shape.span },
+            u,
+            v,
+          );
+          return [px, py, pz + FLOOR_DECAL_LIFT];
+        }
         const [x0, y0, x1, y1] = shape.corners as [number, number, number, number];
         const [sx, sy] = iso({ x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * v, elevation: 0 });
         return [sx, -sy, floorDepth(-sy) + FLOOR_DECAL_LIFT];
@@ -2305,7 +2317,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     });
     this.scene.add(group);
     this.metrics.surfaceZones = zones;
-    this.metrics.surfaceDecals = decals;
+    this.surfaceDecalsBuilt = decals;
+    this.metrics.surfaceDecals = group.visible ? decals : 0;
     this.metrics.surfaceDecalsWithheld = look.withheld;
     this.dirty = true;
   }

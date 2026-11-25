@@ -452,6 +452,21 @@ export function selectMaterialRendition(
 /** Decision (plan assumption 35, issue 267): decals show at camera zoom >= 1.5, between default 1 and default max 2. */
 export const CLOSE_RANGE_ZOOM = 1.5;
 
+/**
+ * Issue 267: a point (u, v in 0..1) of an object-hosted zone's floor ellipse, in scene units, before
+ * the renderer's decal lift. The ellipse is centred on the object's foot (x, y screen, z its depth) and
+ * spans `span` across, half that down the screen. The tilted floor gains √3 of depth per unit down the
+ * screen, so a point below the centre sits that much nearer the camera and stays on the floor.
+ */
+export function objectSurfacePoint(
+  shape: { readonly x: number; readonly y: number; readonly z: number; readonly span: number },
+  u: number,
+  v: number,
+): [number, number, number] {
+  const down = (v - 0.5) * shape.span * 0.5;
+  return [shape.x + (u - 0.5) * shape.span, -shape.y - down, shape.z + Math.sqrt(3) * down];
+}
+
 /** One close-range mark decal (issue 267), derived from a projected mark and never stored. */
 export interface SurfaceDecal {
   readonly actorId: ObjectId | null;

@@ -543,8 +543,9 @@ position) changes. A world without surfaces draws nothing.
   FNV-1a of the seed, zone, mark time and point, and its colour the tint of the zone's last current
   treatment that draws marks, so replay, catch-up and flashback frames draw the same picture.
 - **Budget.** The tier's decal budget bounds the strokes. Decals it withholds are counted in the scene
-  metrics (`surfaceDecalsWithheld`), which is zero for a conforming pack; `surfaceZones` and
-  `surfaceDecals` count what is drawn.
+  metrics (`surfaceDecalsWithheld`), which is zero for a conforming pack; `surfaceZones` counts the
+  zones drawn and `surfaceDecals` the strokes on screen: zero below `CLOSE_RANGE_ZOOM`, where the decal
+  group is hidden.
 - **Text path.** The text view lists each zone's sentence under "Surfaces" and announces a new or
   changed sentence.
 
