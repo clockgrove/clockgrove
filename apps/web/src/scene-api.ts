@@ -1508,12 +1508,13 @@ export class SceneSession {
     }
   }
   /**
-   * Issue 273: reads the selected entity's marks once per selection key, when the selection panel
+   * Issue 273: reads the selected entity's marks once per selection key (`key`, if still current), when the selection panel
    * shows them (so a session without that panel sends no extra request).
    */
-  loadMarks(): void {
+  loadMarks(key: MarksQueryKey): void {
     const scope = this.getSnapshot().scope;
     if (
+      key !== this.marksKey ||
       !this.selected ||
       !this.credential ||
       !scope ||

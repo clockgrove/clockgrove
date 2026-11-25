@@ -102,7 +102,7 @@ function EntitySelectionPanel({
 }) {
   const marks = useFlashbackMarksQuery(session);
   const marksKey = session.getMarksKey();
-  useEffect(() => session.loadMarks(), [session, marksKey]);
+  useEffect(() => session.loadMarks(marksKey), [session, marksKey]);
   if (!selected) return <p>Select an entity using the canvas or an entity button.</p>;
   const value = current?.value;
   return (
