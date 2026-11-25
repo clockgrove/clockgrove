@@ -3,9 +3,10 @@ import {
   type UsageWebhookBody,
   type UsageWebhookRegistration,
 } from "@clockgrove/contracts";
+import { createHmac } from "node:crypto";
 import { Webhook } from "standardwebhooks";
 import { expect, it } from "vitest";
-import { sweepUsageWebhooks, usageWebhookSecret } from "../src/usage-webhooks.js";
+import { sweepUsageWebhooks } from "../src/usage-webhooks.js";
 import { withClient } from "./world-fixture.js";
 import {
   isNativeWorldOwnerChild,
@@ -68,7 +69,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
       ).sessionId;
       await owner.request(
         "/v1/runtime/talk",
-        { version: 1, ...owner.scope, sessionId: session, messageId: "m1", text: "Hello." },
+        {
+          version: 1,
+          ...owner.scope,
+          sessionId: session,
+          messageId: "m1",
+          text: "Hello.",
+        },
         MEMBER,
       );
 
@@ -117,14 +124,24 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ),
       ).toBe(
         [1, 2]
-          .map(() => "principal-outsider|usage-webhook|https://hooks.example|allow|served")
+          .map(
+            () =>
+              "principal-outsider|usage-webhook|https://hooks.example|allow|served",
+          )
           .join(","),
       );
-      const { webhookId, signingSecret } = registered.body as UsageWebhookRegistration;
-      const secret = await usageWebhookSecret(NATIVE_USAGE_WEBHOOK_SECRET, webhookId);
+      const { webhookId, signingSecret } =
+        registered.body as UsageWebhookRegistration;
+      // Derived here, independently of the code under test: the deployment secret's HMAC of this
+      // webhook's id, so one secret for every webhook, or one ignoring the deployment's, fails.
+      const secret = `whsec_${createHmac("sha256", NATIVE_USAGE_WEBHOOK_SECRET).update(webhookId).digest("base64")}`;
       expect(signingSecret).toBe(secret);
       const answers = [500, 204];
-      const posts: { url: string; headers: Record<string, string>; body: string }[] = [];
+      const posts: {
+        url: string;
+        headers: Record<string, string>;
+        body: string;
+      }[] = [];
       const sweep = (pageSize?: number) =>
         withClient(owner.fixture.environment, (client) =>
           sweepUsageWebhooks(client, {
@@ -165,15 +182,24 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(await sweep()).toEqual({ delivered: 1, failed: 0 });
       const [refused, accepted] = posts;
       expect(accepted?.url).toBe("https://hooks.example/usage");
-      expect(accepted?.headers["webhook-id"]).toBe(`${webhookId}:${sequences[0]}:${sequences[1]}`);
-      expect(accepted?.headers["webhook-id"]).toBe(refused?.headers["webhook-id"]);
-      expect(accepted?.body).toBe(refused?.body);
-      expect(new Webhook(secret).verify(accepted?.body ?? "", accepted?.headers ?? {})).toEqual(
-        JSON.parse(accepted?.body ?? ""),
+      expect(accepted?.headers["webhook-id"]).toBe(
+        `${webhookId}:${sequences[0]}:${sequences[1]}`,
       );
+      expect(accepted?.headers["webhook-id"]).toBe(
+        refused?.headers["webhook-id"],
+      );
+      expect(accepted?.body).toBe(refused?.body);
+      expect(
+        new Webhook(secret).verify(
+          accepted?.body ?? "",
+          accepted?.headers ?? {},
+        ),
+      ).toEqual(JSON.parse(accepted?.body ?? ""));
       const body = JSON.parse(accepted?.body ?? "") as UsageWebhookBody;
       expect(body.type).toBe("usage.events");
-      expect(body.events.map((event) => [event.category, event.sequence])).toEqual([
+      expect(
+        body.events.map((event) => [event.category, event.sequence]),
+      ).toEqual([
         ["model_call", sequences[0]],
         ["delivery", sequences[1]],
       ]);
@@ -187,7 +213,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
       // A webhook that is behind is drained in one sweep, a page at a time, not a page per cron run.
       await owner.request(
         "/v1/runtime/talk",
-        { version: 1, ...owner.scope, sessionId: session, messageId: "m2", text: "Again." },
+        {
+          version: 1,
+          ...owner.scope,
+          sessionId: session,
+          messageId: "m2",
+          text: "Again.",
+        },
         MEMBER,
       );
       const later = (
