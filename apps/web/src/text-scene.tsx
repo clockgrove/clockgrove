@@ -148,12 +148,13 @@ export function TextSceneSurfaces({
         ))}
       </ul>
       {session && (
-        // The list holds only sentences; each zone's why opens from this group beside it.
-        <div role="group" aria-label="Surface moments">
+        // The list holds only sentences; each zone's why opens from the line after it.
+        <p>
+          Ask why:
           {sentences.map((entry) => (
             <ZoneMomentsButton key={entry.zoneId} session={session} zoneId={entry.zoneId} />
           ))}
-        </div>
+        </p>
       )}
       {session && <ZoneMoments session={session} />}
     </>
