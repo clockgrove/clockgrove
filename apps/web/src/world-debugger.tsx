@@ -442,6 +442,59 @@ type Decisions =
       }[];
     };
 
+type PublicAction = EntitySelection["history"]["actions"][number];
+
+/**
+ * An actor's newest decisions, at most 5. Each history page is one window of the space's journal
+ * filtered to this actor, so follow the cursor until 5 are found, the history ends or the page bound
+ * is reached; `stopped` says why the read ended short of the history's start.
+ */
+export async function recentDecisions(
+  read: (cursor?: { observedRevision: string; beforeSequence: string }) => Promise<EntitySelection>,
+): Promise<{
+  readonly selection: EntitySelection;
+  readonly decisions: readonly PublicAction[];
+  readonly stopped?: string;
+}> {
+  const selection = await read();
+  const decisions = selection.history.actions.filter((action) => action.decision === true);
+  let cursor = selection.history.beforeSequence;
+  let revision = selection.history.observedRevision;
+  let pages = 1;
+  let stopped: string | undefined;
+  while (decisions.length < 5 && cursor !== null) {
+    if (pages >= DECISION_PAGES) {
+      stopped = `Read ${pages} history windows; older decisions were not read.`;
+      break;
+    }
+    pages += 1;
+    try {
+      const older = await read({ observedRevision: revision, beforeSequence: cursor });
+      decisions.push(...older.history.actions.filter((action) => action.decision === true));
+      cursor = older.history.beforeSequence;
+    } catch (error) {
+      // A cursor names the revision it was read at; the world moving on answers 409
+      // (selection_unavailable). The journal below the cursor does not change, so read the
+      // current revision and go on from the same cursor. Any other refusal stops and says so.
+      if (!(error instanceof ApiRefusal) || error.status !== 409) {
+        stopped = `History read refused (${refusalOf(error)}); older decisions were not read.`;
+        break;
+      }
+      try {
+        revision = (await read()).history.observedRevision;
+      } catch (current) {
+        stopped = `History read refused (${refusalOf(current)}); older decisions were not read.`;
+        break;
+      }
+    }
+  }
+  return {
+    selection,
+    decisions: decisions.slice(0, 5),
+    ...(stopped === undefined ? {} : { stopped }),
+  };
+}
+
 function DebuggerActors({
   session,
   scene,
@@ -455,45 +508,12 @@ function DebuggerActors({
     const objectId = actor ?? scene.entities[0]?.objectId;
     if (!objectId) return;
     try {
-      const selection = await session.readEntity(objectId);
-      // Each history page is one window of the space's journal filtered to this actor, so follow
-      // the cursor until 5 decisions are found, the history ends or the page bound is reached.
-      const decisions = selection.history.actions.filter((action) => action.decision === true);
-      let cursor = selection.history.beforeSequence;
-      let revision = selection.history.observedRevision;
-      let pages = 1;
-      let stopped: string | undefined;
-      while (decisions.length < 5 && cursor !== null) {
-        if (pages >= DECISION_PAGES) {
-          stopped = `Read ${pages} history windows; older decisions were not read.`;
-          break;
-        }
-        pages += 1;
-        try {
-          const older = await session.readEntity(objectId, {
-            observedRevision: revision,
-            beforeSequence: cursor,
-          });
-          decisions.push(...older.history.actions.filter((action) => action.decision === true));
-          cursor = older.history.beforeSequence;
-        } catch (error) {
-          // A cursor names the revision it was read at; the world moving on answers 409
-          // (selection_unavailable). The journal below the cursor does not change, so read the
-          // current revision and go on from the same cursor. Any other refusal stops and says so.
-          if (!(error instanceof ApiRefusal) || error.status !== 409) {
-            stopped = `History read refused (${refusalOf(error)}); older decisions were not read.`;
-            break;
-          }
-          try {
-            revision = (await session.readEntity(objectId)).history.observedRevision;
-          } catch (current) {
-            stopped = `History read refused (${refusalOf(current)}); older decisions were not read.`;
-            break;
-          }
-        }
-      }
-      const shown = decisions.slice(0, 5);
-      const whys = await Promise.all(shown.map((action) => session.readEventWhy(action.eventId)));
+      const { selection, decisions, stopped } = await recentDecisions((cursor) =>
+        session.readEntity(objectId, cursor),
+      );
+      const whys = await Promise.all(
+        decisions.map((action) => session.readEventWhy(action.eventId)),
+      );
       setResult({
         kind: "read",
         selection,
