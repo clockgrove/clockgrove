@@ -121,6 +121,7 @@ import {
   PostgreSqlRuntimeStateInspector,
   type RuntimeStatePorts,
 } from "./inspector.js";
+import { journalReplayPorts, PostgreSqlJournalInspector } from "./journal-inspector.js";
 import { composeMcpOperator } from "./mcp-composition.js";
 import {
   PostgreSqlEntitySelectionReader,
@@ -561,6 +562,30 @@ export function composeTurnOwners(env: Pick<RuntimeEnvironment, "ACTOR_AGENT_DO"
         actorId,
         request,
       ),
+  };
+}
+
+/** The world debugger's journal window and replay (0080); replay reads snapshots and the birth. */
+export function composeJournalInspector(
+  env: RuntimeEnvironment,
+): RuntimeOwnerBindings["journalPages"] {
+  const inspector = <T>(operation: (inspector: PostgreSqlJournalInspector) => Promise<T>) =>
+    withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+      operation(
+        new PostgreSqlJournalInspector(
+          client,
+          journalReplayPorts(client, {
+            artifacts: composeArtifactStore(env, client),
+            birth: new PostgreSqlWorldProvisioningStore(client),
+            decodeResource,
+          }),
+        ),
+      ),
+    );
+  return {
+    inspect: (input, context) => inspector((journal) => journal.inspect(input, context)),
+    deny: (input, principalId, denial) =>
+      inspector((journal) => journal.deny(input, principalId, denial)),
   };
 }
 
@@ -1499,6 +1524,7 @@ export default {
     const conversations = composeConversations(env);
     const runs = composeRunInspector(env);
     const usage = composeUsageInspector(env);
+    const journalPages = composeJournalInspector(env);
     const cognition = composeCognition(env);
     const inspector = <T>(operation: (inspector: PostgreSqlCausalInspector) => Promise<T>) =>
       withHyperdrivePostgreSqlClient(connection, (client) =>
@@ -1561,6 +1587,7 @@ export default {
             }),
         ...(runs === undefined ? {} : { runs }),
         ...(usage === undefined ? {} : { usage }),
+        ...(journalPages === undefined ? {} : { journalPages }),
         ...(cognition === undefined ? {} : { cognition }),
         changeViewedSpace: (request, authorize) =>
           withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>

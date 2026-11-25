@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { expect, it, onTestFailed } from "vitest";
-import { decodeCanonicalNode } from "../../packages/application/src/index.ts";
+import { decodeCanonicalNode, encodeCanonicalNode } from "../../packages/application/src/index.ts";
 import { journeyThenShutdown, namedSteps } from "./journey-steps.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -185,6 +185,7 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
   const history = page.getByRole("list", { name: "Conversation history" });
   await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
   expect(await history.getByRole("listitem").count()).toBe(2);
+  await debugsThePlayground(page, post, entry);
   // The playground world's identity, metadata and clock before another pack is loaded.
   const state = async () => {
     const { tenantId, worldId, timelineId, spaceId } = entry;
@@ -252,6 +253,175 @@ async function ownsThePlayground({ at, page, url, credential, post, entry }, scr
     before.metadata,
     true,
   ]);
+}
+
+// Part 3: the owner's World debugger, read-only, from recorded evidence: the cube's recorded
+// decision (perception, beliefs, goals and the choice), the journal with every event type and its
+// cause, a replay to the journal head, the Talk run's steps and cost, and the pack checks. The
+// dev:world journey checks that an observer never sees it.
+async function debugsThePlayground(page, post, entry) {
+  // A fresh world's clock starts paused; its owner runs it (×60, so the cube's 60 s decision
+  // interval passes each wall second) through the existing clock commands and `runtime:world-clock`.
+  const { tenantId, worldId, timelineId, spaceId } = entry;
+  const clock = async (type, payload) => {
+    const key = `debugger-${type}`;
+    const response = await post("/v1/runtime/commands", {
+      schemaVersion: 1,
+      tenantId,
+      worldId,
+      timelineId,
+      spaceId,
+      routingEpoch: "1",
+      authorityEpoch: "1",
+      command: encodeCanonicalNode({
+        schemaVersion: 1,
+        commandId: key,
+        type,
+        target: { version: 1, tenantId, worldId, timelineId, kind: "world", id: worldId },
+        expected: {},
+        issuedAt: new Date().toISOString(),
+        context: { version: 1, correlationId: `correlation-${key}`, requestId: key },
+        attribution: { effectiveActorId: "playground-owner", causalRootActionId: `action-${key}` },
+        payload,
+      }),
+    });
+    expect([type, response.status]).toEqual([type, 200]);
+  };
+  await clock("SetClockPolicy", {
+    schemaVersion: 1,
+    simulationMillisecondsPerWallMillisecond: 60,
+    catchUpCapMs: 86_400_000n,
+  });
+  await clock("ResumeWorld", { schemaVersion: 1 });
+  await page.locator("summary", { hasText: /^World debugger$/u }).click();
+  const actors = page.getByRole("region", { name: "Debugger actors", exact: true });
+  await actors.getByLabel("Actor").selectOption("playground.cube");
+  // The cube decides as the clock runs; read again until its first decision is recorded.
+  const decision = actors.getByRole("region", { name: /^Decision at \d+$/u }).first();
+  await expect
+    .poll(
+      async () => {
+        await actors.getByRole("button", { name: "Show decisions", exact: true }).click();
+        return decision.isVisible().catch(() => false);
+      },
+      { timeout: 180_000, interval: 5_000 },
+    )
+    .toBe(true);
+  expect(await decision.getByRole("heading", { level: 5 }).allTextContents()).toEqual([
+    "Perception",
+    "Beliefs",
+    "Goals",
+    "Choice",
+  ]);
+  expect(await decision.getByText(/^Chose (stay|seek-[a-z]+) → \S+ \(tier /u).count()).toBe(1);
+  // The recorded trace's features, read through: the cube perceives the rock (300 units away, in
+  // a 5,000-unit perception range); `stay` records no `perceived` feature; it holds no memory of
+  // the rock (expectation 0, no food freshness); and its goals are the actor-level needs.
+  const lists = decision.getByRole("list");
+  const perception = await lists.nth(0).getByRole("listitem").allTextContents();
+  expect(perception).toContain("stay → None: not recorded");
+  expect(perception).toContain("seek-shelter → playground.rock: perceived");
+  expect(
+    perception.filter(
+      (line) =>
+        !/^seek-water → playground\.puddle: perceived$/u.test(line) &&
+        line !== "stay → None: not recorded" &&
+        line !== "seek-shelter → playground.rock: perceived",
+    ),
+  ).toEqual([]);
+  const beliefs = await lists.nth(1).getByRole("listitem").allTextContents();
+  expect(beliefs).toContain(
+    "seek-shelter → playground.rock: expectation 0, freshness not recorded",
+  );
+  expect(
+    beliefs.filter(
+      (line) =>
+        !/^seek-water → playground\.puddle: expectation \d+, freshness not recorded$/u.test(line) &&
+        line !== "seek-shelter → playground.rock: expectation 0, freshness not recorded",
+    ),
+  ).toEqual([]);
+  const goals = await decision
+    .getByText(/^hunger \d+|^thirst \d+|^wetness \d+|^U \d+|^rain \d+|^health \d+/u)
+    .textContent();
+  expect(
+    goals
+      .split(", ")
+      .map((pair) => /^(\S+) -?\d+$/u.exec(pair)?.[1])
+      .sort(),
+  ).toEqual(["U", "health", "hunger", "rain", "thirst", "uncomfortable", "wetness"]);
+  // Paused, the journal head stays put, so a replay to it can be compared with the live projection.
+  await clock("PauseWorld", { schemaVersion: 1 });
+  const journal = page.getByRole("region", { name: "Debugger journal", exact: true });
+  await journal.getByRole("button", { name: "Load journal", exact: true }).click();
+  const rows = journal.getByRole("list", { name: "Journal events" }).getByRole("listitem");
+  await rows.first().waitFor();
+  const types = new Set(
+    (await rows.allTextContents()).map((text) => /^#\d+ (\S+) /u.exec(text)?.[1]),
+  );
+  // Every type, not only the feed's: needs, the clock's policy and the world's genesis records.
+  expect([
+    types.has("needs.changed"),
+    types.has("ClockPolicyChanged"),
+    types.has("WorldGenesisCreated"),
+    types.has(undefined),
+  ]).toEqual([true, true, true, false]);
+  expect(await journal.getByText(/, back to the start of the journal\.$/u).count()).toBe(1);
+  expect(
+    await journal
+      .getByText(/^Recorded cause: command \S+; causation \S+; actor \S+; root action \S+/u)
+      .count(),
+  ).toBe(await rows.count());
+  const cause = journal.getByRole("button", { name: /^Cause of event /u }).first();
+  await cause.click();
+  await journal
+    .getByText(/^Caused by command \S+; receipt committed; /u)
+    .first()
+    .waitFor();
+  const timeline = page.getByRole("region", { name: "Debugger timeline", exact: true });
+  const head = /^Journal head (\d+);/u.exec(
+    await journal.getByText(/^Journal head \d+;/u).textContent(),
+  )?.[1];
+  await timeline.getByRole("button", { name: `Replay to #${head}`, exact: true }).click();
+  const replayed = timeline.getByRole("region", { name: "Replay result", exact: true });
+  await replayed.waitFor({ timeout: 60_000 });
+  expect(await replayed.getByRole("paragraph").textContent()).toMatch(
+    new RegExp(
+      `^Replayed to #${head} from \\S+: [1-9]\\d* events applied; revision \\d+; simulation time \\d+; rain \\d+; state hash [0-9a-f]{64}; matches the live projection\\.$`,
+      "u",
+    ),
+  );
+  expect(await replayed.getByText(/^playground\.cube: location /u).count()).toBe(1);
+  await timeline.getByRole("button", { name: "Go to Timeline", exact: true }).click();
+  expect(await page.evaluate(() => document.activeElement?.id)).toBe("rw-timeline-earlier");
+  const runs = page.getByRole("region", { name: "Debugger runs", exact: true });
+  await runs.getByRole("button", { name: "Load runs", exact: true }).click();
+  await runs
+    .getByRole("button", { name: /^Inspect run /u })
+    .first()
+    .click();
+  const steps = runs.getByRole("list", { name: "Run steps" }).first();
+  await steps.waitFor();
+  // The scripted Talk to the rock: one run of three steps, its one model call priced at $0.
+  expect([
+    await runs
+      .getByText(
+        /^Run \S+: completed, model scripted-fixture-v1, actor playground\.rock, 3 steps Inspect run /u,
+      )
+      .count(),
+    await steps.getByRole("listitem").allTextContents(),
+    await runs.getByText(/^(Model calls|Tool calls|Approvals|Cost): /u).allTextContents(),
+  ]).toEqual([
+    1,
+    [
+      "context_retrieval · succeeded",
+      "model_attempt · succeeded · scripted-fixture-v1 · 0 in / 0 out tokens · $0.000000",
+      "commit · succeeded",
+    ],
+    ["Model calls: 1", "Tool calls: 0", "Approvals: 0", "Cost: $0.000000"],
+  ]);
+  const checks = page.getByRole("region", { name: "Debugger checks", exact: true });
+  await checks.getByRole("button", { name: "Load checks", exact: true }).click();
+  await checks.getByText("Checks: passed", { exact: true }).waitFor();
 }
 
 // Two hosted worlds, each within dev:world's 720 s bound (#401).

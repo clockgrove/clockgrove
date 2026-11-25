@@ -134,12 +134,33 @@ it("serves the living hall it prints and removes it on Ctrl-C", async () => {
       browser = await chromium.launch({ headless: true });
       const page = await browser.newPage();
       await page.goto(url.toString());
+      // Issue 327: ordinary play asks no owner read; only `?debugger` asks for the world debugger,
+      // and the observer lacks runtime:world-inspect, so it is refused and nothing renders.
+      const ownerReads = [];
+      page.on("request", (request) => {
+        if (request.url().endsWith("/v1/runtime/runtime-state")) ownerReads.push(request.url());
+      });
       await page.getByLabel("Local session credential").fill(credential);
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
       await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
       expect(await page.getByText(/^Arrival: /u).textContent()).toBe(
         "Arrival: scene ready at revision 0.",
       );
+      expect(ownerReads).toEqual([]);
+      const asked = new URL(url);
+      asked.searchParams.set("debugger", "");
+      await page.goto(asked.toString());
+      const gate = page.waitForResponse((response) =>
+        response.url().endsWith("/v1/runtime/runtime-state"),
+      );
+      await page.getByLabel("Local session credential").fill(credential);
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.getByText(/^Arrival: (text )?scene ready at revision /u).waitFor();
+      expect([
+        (await gate).status(),
+        await page.locator("summary", { hasText: /^World debugger$/u }).count(),
+        await page.getByText(/^World debugger unavailable/u).count(),
+      ]).toEqual([403, 0, 0]);
     },
     "Ctrl-C stops dev:world",
     async () => {

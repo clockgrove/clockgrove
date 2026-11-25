@@ -362,6 +362,24 @@ it("observes canonical entity state and earned values without writes, pages reco
         }),
       );
       expect([stale.status, await stale.json()]).toEqual([409, { error: "selection_unavailable" }]);
+      // The debugger's retry: read the current revision, then the same cursor at it. The journal
+      // below the cursor did not change, so the older window is served as it was.
+      const current = decodeEntitySelection(
+        await (await worker.fetch(request("fixture.snack-dish"))).json(),
+      );
+      expect(current.revision).not.toBe(recent.revision);
+      const retried = await worker.fetch(
+        request("fixture.snack-dish", {
+          cursor: {
+            observedRevision: current.history.observedRevision,
+            beforeSequence: recent.history.beforeSequence,
+          },
+        }),
+      );
+      expect(retried.status).toBe(200);
+      const retriedPage = decodeEntitySelection(await retried.json());
+      expect(retriedPage.history.actions).toEqual(earlier.history.actions);
+      expect(retriedPage.history.beforeSequence).toBe(null);
       auth.revoke();
       const denied = await worker.fetch(request("fixture.snack-dish"));
       expect([denied.status, await denied.json()]).toEqual([
