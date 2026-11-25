@@ -120,3 +120,43 @@ export class TierGovernor {
     return next;
   }
 }
+
+/**
+ * Decision (issue 273): one journaled frame per the live scene's INTERPOLATION_MS, so a frame lasts
+ * as long as one committed move draws live; 17 frames play in under 7 s.
+ */
+export const FLASHBACK_FRAME_MS = 400;
+
+/**
+ * Decision (issue 273): the PiP's CSS size per live tier. Low has no PiP canvas (the tier a device
+ * or a struggling frame rate drops to, where a second renderer would cost the live view); the text
+ * summary is the floor. The sizes are a half and three-quarters of the renderer's 640 x 400 logical
+ * view. The PiP keeps the lowest live tier seen while it is open, so a live step down that removes
+ * it is not undone mid-replay. What the PiP itself renders at is FLASHBACK_PIP_LIMITS.
+ */
+export const FLASHBACK_PIP_BUDGET: Readonly<
+  Record<QualityTier, { readonly width: number; readonly height: number } | null>
+> = {
+  low: null,
+  medium: { width: 320, height: 200 },
+  high: { width: 480, height: 300 },
+};
+
+/**
+ * Decision (issue 273): what the PiP's own renderer adds while a flashback is open. Its governor's
+ * ceiling is low, so it renders at low quality (no bloom, a quarter of its fragments shaded) with
+ * low's 512,000-pixel output cap and 16 MiB render-target ceiling, whatever the live tier, and at a
+ * pixel ratio of 1, so its output is its CSS size (at most 480 x 300). It loads its own copy of the
+ * content's atlas and material textures, which the material delivery budget holds to 32 MiB
+ * (MATERIAL_DELIVERY_BUDGET), and runs one more animation-frame loop that draws only when its
+ * journaled frame, size, tier or content changes, never every animation frame while it holds still.
+ */
+export const FLASHBACK_PIP_LIMITS = {
+  tierCeiling: "low",
+  maxPixelRatio: 1,
+  stillFrames: true,
+} as const satisfies {
+  readonly tierCeiling: QualityTier;
+  readonly maxPixelRatio: number;
+  readonly stillFrames: boolean;
+};

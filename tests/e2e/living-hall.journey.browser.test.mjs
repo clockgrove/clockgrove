@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { chromium } from "playwright";
 import { expect, it } from "vitest";
 import { FakeConversationAdapter } from "../../apps/runtime/src/channel-adapters.ts";
+import { PostgreSqlFlashbackReader } from "../../apps/runtime/src/flashback.ts";
 import { PostgreSqlCausalInspector } from "../../apps/runtime/src/inspector.ts";
 import {
   PostgreSqlEntitySelectionReader,
@@ -36,6 +37,7 @@ import { createServer } from "../../apps/web/node_modules/vite/dist/node/index.j
 import { decodeCanonicalNode, executeWorldCommand } from "../../packages/application/src/index.ts";
 import {
   decodeEntitySelection,
+  decodeFlashback,
   decodeLivingScene,
   decodeRecordedWhy,
   decodeWorldBootState,
@@ -45,9 +47,11 @@ import {
 } from "../../packages/contracts/src/index.ts";
 import { executeWorldKernel } from "../../packages/kernel/src/index.ts";
 import {
+  PostgreSqlArtifactStore,
   PostgreSqlWorldCommandJournal,
   PostgreSqlWorldOwnerReader,
 } from "../../packages/persistence/src/index.ts";
+import { decodeResource } from "../../packages/world-pack-sdk/src/index.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 process.env.CLOCKGROVE_WORLD_SHELL = path.join(root, "worlds/fixture/reference/shell.json");
@@ -157,13 +161,30 @@ TextSceneEntities = (props) => {
           return {
             code: `${process.env.CLOCKGROVE_RENDERER_PROOF === "webgl2" ? code.replace("new THREE.WebGPURenderer({", "new THREE.WebGPURenderer({ forceWebGL: true,") : code}
 const { loadSnapshot: originalPresent, draw: originalDraw } = ThreeWorldSceneAdapter.prototype;
+// Issue 273: the flashback's picture-in-picture is a second adapter, told apart by its tier ceiling;
+// it is kept as hallPipAdapter and never replaces the live canvas's handle or revisions.
+const hallLive = (adapter) => adapter.limits?.tierCeiling === undefined;
 ThreeWorldSceneAdapter.prototype.draw = function (...args) {
   originalDraw.apply(this, args);
+  if (!hallLive(this)) {
+    if (this.scene && this.projection) globalThis.hallPipDrawnRevision = String(this.projection.revision);
+    return;
+  }
   if (this.scene && this.projection) globalThis.hallDrawnRevision = String(this.projection.revision);
+};
+// Issue 273: the PiP's drawn frames are counted, so a still PiP is proved to draw nothing.
+const { renderFrame: originalRenderFrame } = ThreeWorldSceneAdapter.prototype;
+ThreeWorldSceneAdapter.prototype.renderFrame = function (...args) {
+  if (!hallLive(this)) globalThis.hallPipRenders = (globalThis.hallPipRenders ?? 0) + 1;
+  return originalRenderFrame.apply(this, args);
 };
 globalThis.hallRendererHookRegistered = true;
 globalThis.hallRendererPresentInvoked = false;
 ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
+  if (!hallLive(this)) {
+    globalThis.hallPipAdapter = this;
+    return originalPresent.apply(this, args);
+  }
   globalThis.hallRendererPresentInvoked = true;
   globalThis.hallAdapter = this;
   if (globalThis.hallFailPresent) throw new Error("presentation assets unavailable");
@@ -180,6 +201,7 @@ ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
             "/v1/runtime/entity",
             "/v1/runtime/why",
             "/v1/runtime/causal-chain",
+            "/v1/runtime/flashback",
             "/v1/runtime/world-directory",
             "/v1/runtime/world-readiness",
             "/v1/runtime/viewed-space",
@@ -378,6 +400,20 @@ const observeHall = async (backend) => {
           recordedWhy: (...args) =>
             withClient(fixture.environment, (requestClient) =>
               new PostgreSqlCausalInspector(requestClient).recordedWhy(...args),
+            ),
+          deny: (input, principalId, denial) =>
+            withClient(fixture.environment, (requestClient) =>
+              new PostgreSqlCausalInspector(requestClient).deny(input, principalId, denial),
+            ),
+        },
+        flashback: {
+          inspect: (...args) =>
+            withClient(fixture.environment, (requestClient) =>
+              new PostgreSqlFlashbackReader(
+                requestClient,
+                new PostgreSqlCausalInspector(requestClient),
+                { artifacts: new PostgreSqlArtifactStore(requestClient), decodeResource },
+              ).inspect(...args),
             ),
           deny: (input, principalId, denial) =>
             withClient(fixture.environment, (requestClient) =>
@@ -1402,6 +1438,91 @@ const observeHall = async (backend) => {
                 .locator(".rw-feed-dock")
                 .evaluate((element) => getComputedStyle(element).backgroundColor),
             ).toBe("rgb(30, 33, 22)");
+            // Issue 273: a feed entry's own Flashback control opens that event's flashback, as the
+            // runtime answers it. Below the breakpoint the flashback is a sheet over the lower half
+            // of the viewport: the live canvas stays in view above it, uncovered.
+            const feedFlashback = feed.getByRole("button", {
+              name: `Flashback feed event ${feedEvent}`,
+              exact: true,
+            });
+            const feedShown = page.waitForResponse(
+              (response) =>
+                response.url().endsWith("/v1/runtime/flashback") && response.status() === 200,
+            );
+            await feedFlashback.click();
+            const feedMoment = decodeFlashback(await (await feedShown).json());
+            const feedDirect = await page.request.post(
+              `http://127.0.0.1:${address.port}/v1/runtime/flashback`,
+              {
+                headers: { authorization: "Bearer hall-inspect" },
+                data: { version: 1, ...auth.scope, eventId: feedEvent },
+              },
+            );
+            expect(feedDirect.status(), await feedDirect.text()).toBe(200);
+            expect(decodeFlashback(await feedDirect.json())).toEqual(feedMoment);
+            const feedFlashbackPanel = page.getByRole("region", { name: "Flashback", exact: true });
+            const feedHeading = feedFlashbackPanel.getByRole("heading", {
+              name: `Flashback: event ${feedEvent}`,
+              exact: true,
+            });
+            await feedHeading.waitFor();
+            await feedFlashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+            expect(
+              await feedHeading.evaluate((heading) => heading === document.activeElement),
+            ).toBe(true);
+            expect(
+              await feedFlashbackPanel
+                .getByRole("region", { name: "Flashback summary", exact: true })
+                .getByRole("listitem")
+                .allTextContents(),
+            ).toEqual(
+              feedMoment.summary.map(
+                (line) =>
+                  `${line.kind[0].toUpperCase()}${line.kind.slice(1)}: ${line.text}${line.cites.length > 0 ? ` Cites ${line.cites.join(", ")}.` : ""}`,
+              ),
+            );
+            // The narrow layout scrolls the window to the scene; with the canvas scrolled to the
+            // top, it stays in view above the sheet.
+            await page.evaluate(() => document.querySelector("canvas").scrollIntoView());
+            const sheet = await box("#rw-flashback");
+            const liveCanvas = await box("canvas");
+            // The sheet keeps to the lower half, 16px from the left, right and bottom edges.
+            expect([
+              sheet[0],
+              sheet[2],
+              sheet[1] + sheet[3],
+              sheet[3] <= Math.ceil(height / 2),
+            ]).toEqual([16, width - 32, height - 16, true]);
+            const canvasTop = Math.max(liveCanvas[1], 0);
+            expect(canvasTop).toBeLessThan(sheet[1]);
+            // The point midway between the canvas's visible top and the sheet's top is the live
+            // canvas's, under no flashback, Why, rail or feed sheet.
+            expect(
+              await page.evaluate(
+                ([x, y]) => {
+                  const canvas = document.querySelector("canvas");
+                  const hit = document.elementFromPoint(x, y);
+                  const rect = canvas.getBoundingClientRect();
+                  return [
+                    hit?.closest("#rw-flashback, #rw-recorded-why, .rw-rail, .rw-feed-dock") ??
+                      null,
+                    x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom,
+                  ];
+                },
+                [
+                  liveCanvas[0] + liveCanvas[2] / 2,
+                  Math.round((canvasTop + Math.min(liveCanvas[1] + liveCanvas[3], sheet[1])) / 2),
+                ],
+              ),
+            ).toEqual([null, true]);
+            await feedFlashbackPanel
+              .getByRole("button", { name: "Close flashback", exact: true })
+              .click();
+            expect(await feedFlashbackPanel.count()).toBe(0);
+            await expect
+              .poll(() => feedFlashback.evaluate((button) => button === document.activeElement))
+              .toBe(true);
+            await page.evaluate(() => scrollTo(0, 0));
             await feed.getByRole("button", { name: "Collapse event feed", exact: true }).click();
             // The window, not an inner container, scrolls the canvas; picking survives the scroll.
             const far = (
@@ -1548,7 +1669,7 @@ const observeHall = async (backend) => {
         expect(recent.history.actions).toEqual(recorded.slice(0, 100));
         const recentText = recorded.map(
           (action) =>
-            `Action ${action.actionId}; event ${action.eventId}; command ${action.commandId}; ${action.type}; partition sequence ${action.partitionSequence}; recorded simulation time ${action.simulationTime}; recorded at ${action.recordedAt} Why action ${action.actionId}`,
+            `Action ${action.actionId}; event ${action.eventId}; command ${action.commandId}; ${action.type}; partition sequence ${action.partitionSequence}; recorded simulation time ${action.simulationTime}; recorded at ${action.recordedAt} Why action ${action.actionId} Flashback action ${action.actionId}`,
         );
         await expect.poll(() => actionRows.allTextContents()).toEqual(recentText.slice(0, 100));
         // Pointer and keyboard must expose identical ordered action rows through this panel.
@@ -1565,7 +1686,7 @@ const observeHall = async (backend) => {
         await page.keyboard.press("Tab");
         await page.keyboard.press("Enter");
         await expect.poll(() => actionRows.allTextContents()).toEqual(recentText.slice(0, 100));
-        await actionRows.first().getByRole("button").click();
+        await actionRows.first().getByRole("button").first().click();
         const resourceWhy = page.getByRole("region", {
           name: "Recorded resource causes",
           exact: true,
@@ -1596,7 +1717,7 @@ const observeHall = async (backend) => {
           ];
           await route.fulfill({ response, json: value });
         });
-        await actionRows.first().getByRole("button").click();
+        await actionRows.first().getByRole("button").first().click();
         await expect
           .poll(() => resourceWhy.getByRole("listitem").allTextContents())
           .toEqual([
@@ -1604,8 +1725,112 @@ const observeHall = async (backend) => {
           ]);
         await page.getByRole("button", { name: "Close Why", exact: true }).click();
         await page.unroute("**/v1/runtime/why");
-        // Each action now has a Why button before the earlier-history control in tab order.
-        await actionRows.last().getByRole("button").focus();
+        // Issue 273: a recorded action's flashback starts from its event, as the runtime answers
+        // that event directly, and closing it returns focus to the action's control.
+        const flashbackOf = async (fields) => {
+          const answer = await page.request.post(
+            `http://127.0.0.1:${address.port}/v1/runtime/flashback`,
+            {
+              headers: { authorization: "Bearer hall-inspect" },
+              data: { version: 1, ...auth.scope, ...fields },
+            },
+          );
+          expect(answer.status(), await answer.text()).toBe(200);
+          return decodeFlashback(await answer.json());
+        };
+        const flashbackPanel = page.getByRole("region", { name: "Flashback", exact: true });
+        const flashbackLines = (value) =>
+          value.summary.map(
+            (line) =>
+              `${line.kind[0].toUpperCase()}${line.kind.slice(1)}: ${line.text}${line.cites.length > 0 ? ` Cites ${line.cites.join(", ")}.` : ""}`,
+          );
+        // The Context section, each definition list as its terms and values in order.
+        const shownContext = () =>
+          flashbackPanel
+            .getByRole("region", { name: "Context at the moment", exact: true })
+            .locator("dl")
+            .evaluateAll((lists) =>
+              lists.map((list) => [...list.children].map((child) => child.textContent)),
+            );
+        const contextOf = ({ context }) => {
+          const minutes =
+            context.timeOfDayMs === null ? undefined : BigInt(context.timeOfDayMs) / 60_000n;
+          const time =
+            context.day === null || minutes === undefined
+              ? `${context.simulationTime} ms into the world`
+              : `Day ${context.day}, ${minutes / 60n}:${(minutes % 60n).toString().padStart(2, "0")} into the day`;
+          const { actor } = context;
+          return [
+            [
+              "Time",
+              time,
+              "Weather",
+              context.rainIntensity === 0 ? "Dry" : `Rain ${context.rainIntensity / 100}%`,
+              "Who was there",
+              context.present.map((present) => present.label).join(", ") || "No one recorded",
+              "Recorded revision",
+              context.revision,
+            ],
+            ...(actor === null
+              ? []
+              : [
+                  [
+                    "Actor",
+                    actor.label,
+                    "Needs",
+                    actor.needs
+                      ? `hunger ${actor.needs.hunger}, wetness ${actor.needs.wetness}`
+                      : "Not recorded",
+                    "Wellbeing",
+                    actor.wellbeing
+                      ? `thirst ${actor.wellbeing.thirst}, health ${actor.wellbeing.health}, ${actor.wellbeing.comfort}`
+                      : "Not recorded",
+                    "Selected action",
+                    actor.selectedAction
+                      ? `${actor.selectedAction.kind}; target ${actor.selectedAction.targetObjectId ?? "None"}`
+                      : "None recorded",
+                  ],
+                ]),
+          ];
+        };
+        const actionFlashback = actionRows.first().getByRole("button", {
+          name: `Flashback action ${recorded[0].actionId}`,
+          exact: true,
+        });
+        const actionShown = page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/v1/runtime/flashback") && response.status() === 200,
+        );
+        await actionFlashback.click();
+        const actionMoment = await flashbackOf({ eventId: recorded[0].eventId });
+        expect(decodeFlashback(await (await actionShown).json())).toEqual(actionMoment);
+        expect(actionMoment.moment.commandId).toBe(recorded[0].commandId);
+        await flashbackPanel
+          .getByRole("heading", { name: `Flashback: event ${recorded[0].eventId}`, exact: true })
+          .waitFor();
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        expect(
+          await flashbackPanel
+            .getByRole("region", { name: "Flashback summary", exact: true })
+            .getByRole("listitem")
+            .allTextContents(),
+        ).toEqual(flashbackLines(actionMoment));
+        // SwiftShader is a software adapter, so the live tier is low: no PiP canvas, text remains.
+        expect(await page.evaluate(() => globalThis.hallAdapter.tier)).toBe("low");
+        await flashbackPanel
+          .getByText(
+            "Picture-in-picture is off at this quality tier; the frame captions and summary remain.",
+            { exact: true },
+          )
+          .waitFor();
+        expect(await flashbackPanel.locator(".rw-flashback-pip").count()).toBe(0);
+        await flashbackPanel.getByRole("button", { name: "Close flashback", exact: true }).click();
+        expect(await flashbackPanel.count()).toBe(0);
+        expect(await actionFlashback.evaluate((button) => button === document.activeElement)).toBe(
+          true,
+        );
+        // Each action now has Why and Flashback buttons before the earlier-history control in tab order.
+        await actionRows.last().getByRole("button").last().focus();
         await page.keyboard.press("Tab");
         expect(await earlierButton.evaluate((button) => button === document.activeElement)).toBe(
           true,
@@ -1796,6 +2021,364 @@ const observeHall = async (backend) => {
         expect(
           await whyPanel.getByText("Child commands: None", { exact: true }).textContent(),
         ).toBe("Child commands: None");
+        // Issue 273: the Why's flashback replays the moment read-only from the journal. The panel
+        // shows the runtime's own answer, the cited summary without private refs, a scrubbable
+        // replay at the live tier's budget, and steps back through its causes.
+        const flashbackState = [await commands(), await durable()];
+        // The live renderer is held at medium (its governor paused) so the PiP's medium budget is
+        // drawn: SwiftShader alone would keep the live tier at low, where there is no PiP canvas.
+        await page.evaluate(() => {
+          const adapter = globalThis.hallAdapter;
+          globalThis.hallGovernor = adapter.governor;
+          adapter.governor = undefined;
+          adapter.setQuality("medium");
+        });
+        const flashbackOpener = whyPanel.getByRole("button", {
+          name: "Flashback to this moment",
+          exact: true,
+        });
+        const shownFlashback = page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/v1/runtime/flashback") && response.status() === 200,
+        );
+        await flashbackOpener.click();
+        let moment = await flashbackOf({ commandId: "browser-why-original" });
+        expect(decodeFlashback(await (await shownFlashback).json())).toEqual(moment);
+        expect(moment.replay.status).toBe("replayed");
+        expect(moment.frames.some((frame) => frame.moment)).toBe(true);
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        expect(
+          await flashbackPanel
+            .getByRole("region", { name: "Flashback summary", exact: true })
+            .getByRole("listitem")
+            .allTextContents(),
+        ).toEqual(flashbackLines(moment));
+        expect(await flashbackPanel.textContent()).not.toMatch(/SENTINEL/u);
+        // Context at the moment: time, weather, who was there and the actor's state, as recorded;
+        // the time is the one the runtime's own context line gives.
+        const whyContext = contextOf(moment);
+        expect(await shownContext()).toEqual(whyContext);
+        const whyTime = whyContext[0][1];
+        expect(
+          moment.summary.some(
+            (line) =>
+              line.kind === "context" &&
+              line.text === `It was ${whyTime[0].toLowerCase()}${whyTime.slice(1)}.`,
+          ),
+        ).toBe(true);
+        // At the medium live tier the PiP is a second renderer, 320 x 200 CSS pixels, held to the
+        // low tier at a pixel ratio of 1, drawing the journaled frames; the live handle is unchanged.
+        const replay = flashbackPanel.getByRole("region", {
+          name: "Flashback replay",
+          exact: true,
+        });
+        const pip = replay.locator(".rw-flashback-pip");
+        await pip.locator("canvas").waitFor();
+        expect(await pip.getAttribute("data-pip-tier")).toBe("medium");
+        const pipBox = await pip.boundingBox();
+        // The PiP's 1px border sits outside its 320 x 200 content box.
+        expect([Math.round(pipBox.width), Math.round(pipBox.height)]).toEqual([322, 202]);
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const live = globalThis.hallAdapter;
+              const inset = globalThis.hallPipAdapter;
+              return inset === undefined
+                ? null
+                : [
+                    live === inset,
+                    live.renderer.domElement.isConnected &&
+                      live.renderer.domElement.closest(".rw-flashback-pip") === null,
+                    inset.tier,
+                    inset.pixelRatio(),
+                    inset.renderer.domElement.width <= 320,
+                    inset.renderer.domElement.height <= 200,
+                    inset.parent === document.querySelector(".rw-flashback-pip"),
+                  ];
+            }),
+          )
+          .toEqual([false, true, "low", 1, true, true, true]);
+        // The flashback keeps this one PiP renderer while it is open: the chain steps below load
+        // their moments into it rather than building another.
+        await page.evaluate(() => {
+          globalThis.hallPipFirst = globalThis.hallPipAdapter;
+        });
+        const caption = (index) => {
+          const frame = moment.frames[index];
+          return `Frame ${index + 1} of ${moment.frames.length}: after command ${frame.commandId}, partition sequence ${frame.partitionSequence}${frame.moment ? ", the moment" : ""}.`;
+        };
+        const frameCaption = replay.locator("[data-flashback-frame]");
+        // Playback steps through every journaled frame in order, then stops on the last: each
+        // caption the replay shows while it plays is recorded and compared with the runtime's frames.
+        expect(moment.frames.length).toBeGreaterThan(1);
+        await replay.evaluate((region) => {
+          const seen = [];
+          const record = () => {
+            const text = region.querySelector("[data-flashback-frame]")?.textContent ?? "";
+            if (seen.at(-1) !== text) seen.push(text);
+          };
+          const observer = new MutationObserver(record);
+          observer.observe(region, { subtree: true, childList: true, characterData: true });
+          // The caption shown before the click counts too: the replay may already be at frame 1.
+          record();
+          globalThis.hallFlashbackCaptions = { seen, observer };
+        });
+        await replay.getByRole("button", { name: "Replay from start", exact: true }).click();
+        await expect.poll(() => frameCaption.textContent()).toBe(caption(moment.frames.length - 1));
+        await replay.getByRole("button", { name: "Play replay", exact: true }).waitFor();
+        const played = await page.evaluate(() => {
+          const { seen, observer } = globalThis.hallFlashbackCaptions;
+          observer.disconnect();
+          return seen;
+        });
+        // Captions before frame 1 belong to the opening autoplay; the replay starts at frame 1.
+        expect(played.slice(played.lastIndexOf(caption(0))), JSON.stringify(played)).toEqual(
+          moment.frames.map((_, index) => caption(index)),
+        );
+        const scrubber = replay.getByRole("slider", { name: "Flashback frame", exact: true });
+        await scrubber.press("Home");
+        await expect.poll(() => frameCaption.textContent()).toBe(caption(0));
+        const momentIndex = moment.frames.findIndex((frame) => frame.moment);
+        for (let index = 0; index < momentIndex; index += 1) await scrubber.press("ArrowRight");
+        await expect.poll(() => frameCaption.textContent()).toBe(caption(momentIndex));
+        // The PiP draws the moment's journaled projection, not the live one.
+        await expect
+          .poll(() => page.evaluate(() => globalThis.hallPipDrawnRevision))
+          .toBe(String(moment.frames[momentIndex].projection.revision));
+        // A paused PiP holding one journaled frame draws nothing more while the live view runs;
+        // stepping to another frame draws again.
+        const pipRenders = () => page.evaluate(() => globalThis.hallPipRenders ?? 0);
+        // The draws across 30 of the page's animation frames.
+        const drawsOverFrames = () =>
+          page.evaluate(
+            () =>
+              new Promise((resolve) => {
+                const before = globalThis.hallPipRenders ?? 0;
+                let left = 30;
+                const tick = () => {
+                  if ((left -= 1) > 0) requestAnimationFrame(tick);
+                  else resolve((globalThis.hallPipRenders ?? 0) - before);
+                };
+                requestAnimationFrame(tick);
+              }),
+          );
+        await expect.poll(drawsOverFrames).toBe(0);
+        const still = await pipRenders();
+        await scrubber.press(momentIndex > 0 ? "ArrowLeft" : "ArrowRight");
+        await expect.poll(pipRenders).toBeGreaterThan(still);
+        await scrubber.press(momentIndex > 0 ? "ArrowRight" : "ArrowLeft");
+        await expect.poll(() => frameCaption.textContent()).toBe(caption(momentIndex));
+        await expect
+          .poll(() => page.evaluate(() => globalThis.hallPipDrawnRevision))
+          .toBe(String(moment.frames[momentIndex].projection.revision));
+        // A chain step that fails keeps the walk: a 404 says the moment is not in the journal and
+        // offers the moment just left; a refused read (429) offers a retry of the same step.
+        const firstCause = moment.before[0];
+        await page.route("**/v1/runtime/flashback", async (route) => {
+          const input = route.request().postDataJSON();
+          await route.continue({
+            postData: JSON.stringify({ ...input, commandId: "browser-no-such-command" }),
+          });
+        });
+        const notFound = page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/v1/runtime/flashback") && response.status() === 404,
+        );
+        await flashbackPanel
+          .getByRole("button", { name: `And before that: command ${firstCause}`, exact: true })
+          .click();
+        await notFound;
+        await flashbackPanel
+          .getByText(
+            `Flashback not found: the journal holds no command ${firstCause} in this space.`,
+            { exact: true },
+          )
+          .waitFor();
+        await page.unroute("**/v1/runtime/flashback");
+        await flashbackPanel
+          .getByRole("button", { name: "Back to command browser-why-original", exact: true })
+          .click();
+        await flashbackPanel
+          .getByRole("heading", { name: "Flashback: command browser-why-original", exact: true })
+          .waitFor();
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        expect(
+          await flashbackPanel
+            .getByRole("region", { name: "Flashback summary", exact: true })
+            .getByRole("listitem")
+            .allTextContents(),
+        ).toEqual(flashbackLines(moment));
+        await page.route("**/v1/runtime/flashback", (route) =>
+          route.fulfill({ status: 429, body: "{}" }),
+        );
+        await flashbackPanel
+          .getByRole("button", { name: `And before that: command ${firstCause}`, exact: true })
+          .click();
+        await flashbackPanel
+          .getByText("Flashback request refused. Try again later.", { exact: true })
+          .waitFor();
+        await page.unroute("**/v1/runtime/flashback");
+        await flashbackPanel.getByRole("button", { name: "Retry flashback", exact: true }).click();
+        await flashbackPanel
+          .getByRole("heading", { name: `Flashback: command ${firstCause}`, exact: true })
+          .waitFor();
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        expect(
+          await flashbackPanel
+            .getByRole("region", { name: "Flashback summary", exact: true })
+            .getByRole("listitem")
+            .allTextContents(),
+        ).toEqual(
+          flashbackLines(
+            await flashbackOf({
+              commandId: firstCause,
+              ...(moment.moment.objectId === null ? {} : { objectId: moment.moment.objectId }),
+            }),
+          ),
+        );
+        // Back to the Why's moment, the walk below starts again from its first cause.
+        await flashbackOpener.click();
+        await flashbackPanel
+          .getByRole("heading", { name: "Flashback: command browser-why-original", exact: true })
+          .waitFor();
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        // "And before that…" follows the actor through each recorded cause while the journal has one.
+        expect(moment.before).toEqual(causalParents);
+        for (let step = 0; moment.before.length > 0 && step < 4; step += 1) {
+          const cause = moment.before[0];
+          await flashbackPanel
+            .getByRole("button", { name: `And before that: command ${cause}`, exact: true })
+            .click();
+          moment = await flashbackOf({
+            commandId: cause,
+            ...(moment.moment.objectId === null ? {} : { objectId: moment.moment.objectId }),
+          });
+          await flashbackPanel
+            .getByRole("heading", { name: `Flashback: command ${cause}`, exact: true })
+            .waitFor();
+          await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+          expect(
+            await flashbackPanel
+              .getByRole("region", { name: "Flashback summary", exact: true })
+              .getByRole("listitem")
+              .allTextContents(),
+          ).toEqual(flashbackLines(moment));
+          expect(await shownContext()).toEqual(moment.context === null ? [] : contextOf(moment));
+        }
+        expect(
+          await page.evaluate(() => [
+            globalThis.hallPipAdapter === globalThis.hallPipFirst,
+            globalThis.hallPipFirst.destroyed,
+            globalThis.hallPipFirst.parent === document.querySelector(".rw-flashback-pip"),
+          ]),
+        ).toEqual([true, false, true]);
+        await flashbackPanel.getByRole("button", { name: "Close flashback", exact: true }).click();
+        expect(await flashbackPanel.count()).toBe(0);
+        // Closing the flashback releases its PiP renderer.
+        expect(await page.evaluate(() => globalThis.hallPipFirst.destroyed)).toBe(true);
+        // The live renderer goes back to its own governor at the tier it started from.
+        await page.evaluate(() => {
+          const adapter = globalThis.hallAdapter;
+          adapter.governor = globalThis.hallGovernor;
+          adapter.setQuality("low");
+        });
+        expect(await flashbackOpener.evaluate((button) => button === document.activeElement)).toBe(
+          true,
+        );
+        // A Why parent command's flashback answers that command, and closing returns focus to it.
+        const parentFlashback = whyPanel.getByRole("button", {
+          name: `Flashback to parent command ${causalParents[0]}`,
+          exact: true,
+        });
+        await parentFlashback.click();
+        const parentMoment = await flashbackOf({ commandId: causalParents[0] });
+        await flashbackPanel
+          .getByRole("heading", { name: `Flashback: command ${causalParents[0]}`, exact: true })
+          .waitFor();
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        expect(
+          await flashbackPanel
+            .getByRole("region", { name: "Flashback summary", exact: true })
+            .getByRole("listitem")
+            .allTextContents(),
+        ).toEqual(flashbackLines(parentMoment));
+        // The PiP keeps the lowest live tier for the whole flashback: opened at low, it stays off
+        // when the live tier recovers, and a chain step after that builds no renderer either.
+        expect(await page.evaluate(() => globalThis.hallAdapter.tier)).toBe("low");
+        await page.evaluate(() => {
+          globalThis.hallPipBefore = globalThis.hallPipAdapter;
+          const adapter = globalThis.hallAdapter;
+          adapter.governor = undefined;
+          adapter.setQuality("medium");
+        });
+        const slowed = flashbackPanel.getByText(
+          "Picture-in-picture stopped when the live view slowed; the frame captions and summary remain.",
+          { exact: true },
+        );
+        await slowed.waitFor();
+        expect(parentMoment.before.length).toBeGreaterThan(0);
+        await flashbackPanel
+          .getByRole("button", {
+            name: `And before that: command ${parentMoment.before[0]}`,
+            exact: true,
+          })
+          .click();
+        await flashbackPanel
+          .getByRole("heading", {
+            name: `Flashback: command ${parentMoment.before[0]}`,
+            exact: true,
+          })
+          .waitFor();
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        await slowed.waitFor();
+        expect(
+          await page.evaluate(() => [
+            globalThis.hallPipAdapter === globalThis.hallPipBefore,
+            document.querySelectorAll(".rw-flashback-pip").length,
+          ]),
+        ).toEqual([true, 0]);
+        await page.evaluate(() => {
+          const adapter = globalThis.hallAdapter;
+          adapter.governor = globalThis.hallGovernor;
+          adapter.setQuality("low");
+        });
+        await flashbackPanel.getByRole("button", { name: "Close flashback", exact: true }).click();
+        expect(await parentFlashback.evaluate((button) => button === document.activeElement)).toBe(
+          true,
+        );
+        // The timeline's flashback starts from its event's id, as the runtime answers that event.
+        const timelineFlashback = page
+          .getByRole("region", { name: "Timeline", exact: true })
+          .getByRole("button", { name: /^Flashback event /u });
+        await timelineFlashback.waitFor();
+        const timelineEvent = (await timelineFlashback.getAttribute("data-flashback-opener")).slice(
+          "timeline:".length,
+        );
+        const timelineShown = page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/v1/runtime/flashback") && response.status() === 200,
+        );
+        await timelineFlashback.click();
+        const timelineMoment = await flashbackOf({ eventId: timelineEvent });
+        expect(decodeFlashback(await (await timelineShown).json())).toEqual(timelineMoment);
+        await flashbackPanel
+          .getByRole("heading", { name: `Flashback: event ${timelineEvent}`, exact: true })
+          .waitFor();
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        expect(
+          await flashbackPanel
+            .getByRole("region", { name: "Flashback summary", exact: true })
+            .getByRole("listitem")
+            .allTextContents(),
+        ).toEqual(flashbackLines(timelineMoment));
+        await flashbackPanel.getByRole("button", { name: "Close flashback", exact: true }).click();
+        expect(
+          await timelineFlashback.evaluate((button) => button === document.activeElement),
+        ).toBe(true);
+        // A flashback reads the journal only: no command, revision or simulation time changed.
+        expect([await commands(), await durable()]).toEqual(flashbackState);
+        // The Why's own keyboard path below starts from its heading, as it did before the flashback.
+        await whyHeading.focus();
         const sharedResponses = [];
         for (const [endpoint, fields] of [
           ["scene", {}],

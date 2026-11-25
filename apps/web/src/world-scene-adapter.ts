@@ -62,6 +62,11 @@ export interface WorldSceneAdapter {
    * occluder, and ends (undefined). Optional: a renderer without world content never reveals.
    */
   onOcclusion?(handler: (reveal: SceneOcclusionReveal | undefined) => void): Unsubscribe;
+  /**
+   * The renderer's current quality tier (quality-tier.ts's `QualityTier`; the bridge imports only
+   * contracts), reported once it is known and on every change.
+   */
+  onQualityTier?(handler: (tier: "low" | "medium" | "high") => void): Unsubscribe;
   destroy(): void;
 }
 

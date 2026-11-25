@@ -1,6 +1,7 @@
 import { decodeSceneProjection, defaultSceneLighting } from "../../../packages/contracts/src/index.js";
 import { ThreeWorldSceneAdapter, type QualityTier } from "../../../apps/web/src/renderer.js";
 import { occlusionText } from "../../../apps/web/src/world-scene-adapter.js";
+import { FLASHBACK_PIP_LIMITS } from "../../../apps/web/src/quality-tier.js";
 import { worldShell } from "../../../apps/web/src/shell.js";
 import { diagnostics, fixtureContent } from "./content.js";
 import committed from "./snapshot.json";
@@ -28,7 +29,8 @@ const adapter = new ThreeWorldSceneAdapter(parent, () => {
   reports.push(point);
   // Match the client measurement ring: retain only the latest 512 observations.
   if (reports.length > 512) reports.shift();
-}, content);
+  // Issue 273: `?pip` runs the renderer as a flashback's picture-in-picture does, with its limits.
+}, content, params.has("pip") ? FLASHBACK_PIP_LIMITS : undefined);
 
 // #266: the page offers selection and writes the text path's line naming who is hidden, as the shell does.
 const occlusion = document.querySelector<HTMLElement>("#occlusion")!;

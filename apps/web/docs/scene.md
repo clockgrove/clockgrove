@@ -294,11 +294,61 @@ are the required hardware targets. Their working bake-off paths are evidence for
 not revalidation of the integrated adapter. CI's SwiftShader path supplies product correctness
 evidence when its journey runs; physical GPU timing is reserved for the maintainer step.
 
+### Flashback picture-in-picture
+
+A flashback (issue 273, `src/flashback-pip.tsx`) plays the journaled frames the runtime returns
+for a past moment in a second `ThreeWorldSceneAdapter`, picture-in-picture over the corner, while
+the live scene keeps running. Each frame is a committed `SceneProjection` passed to
+`loadSnapshot`; the PiP never receives patches, cues or selection and emits no intent. It runs with
+reduced motion, so it draws each journaled state as it was and never a position between two of
+them. It steps one frame every `FLASHBACK_FRAME_MS` (400 ms, the live `INTERPOLATION_MS`, so a
+frame lasts as long as one committed move draws live; at most 17 frames play in under 7 s), and
+can be paused, played, scrubbed with its **Flashback frame** slider and replayed from the start.
+
+The live renderer reports its tier through the adapter's optional `onQualityTier`, and
+`FLASHBACK_PIP_BUDGET` (`src/quality-tier.ts`) sets the PiP's CSS size from it:
+
+| Live tier | PiP canvas |
+| --- | --- |
+| low | none |
+| medium | 320 × 200 |
+| high | 480 × 300 |
+
+Low has none because it is the tier a device or a struggling frame rate drops to, where a second
+renderer would cost the live view; the sizes are a half and three-quarters of the renderer's
+640 × 400 logical view. With no live canvas (text fallback, canvas unavailable) there is no PiP
+canvas either. The frame captions and the flashback's text summary remain at every tier. A PiP
+that loses its device or refuses a frame is destroyed and says so, and stays off until the
+flashback closes; the live scene is unaffected. The flashback keeps the lowest live tier seen while
+it is open: a live step down to low removes the PiP until the flashback closes, so a live tier that
+recovers cannot recreate it mid-replay or on a later chain step, retry or back.
+
+What the PiP itself adds is `FLASHBACK_PIP_LIMITS`, passed as the adapter's optional sixth
+argument (`RendererLimits`): its own governor's ceiling is low, so it renders at low quality (no
+bloom, a quarter of its fragments shaded, low's 512,000-pixel output cap and 16 MiB render-target
+ceiling) whatever the live tier, at a pixel ratio of at most 1, so its output is its CSS size. It
+loads its own copy of the content's atlas and material textures, which the material delivery
+budget holds to 32 MiB, and runs one more animation-frame loop. That loop draws only when the PiP's
+journaled frame, size, tier or content changes (`stillFrames`), never once per animation frame
+while it holds still, so a paused or finished replay costs the live view no draws.
+
+A flashback builds that renderer once (`FlashbackStage`) and keeps it while it is open: stepping
+back through causes, retrying a step or going back loads the new moment's frames into the same
+renderer, so walking a chain never builds another device, shader set or texture copy. Closing the
+flashback, a moment shown without a PiP budget, a lost device or a change of content releases it.
+
+On a wide shell the PiP sits over the rail's lower corner and the rail reserves its height at its
+foot, so the rail's last rows scroll clear of it. Below 1200 px the flashback panel is a sheet
+over the lower half of the viewport (at most 50vh), above the rail and feed sheets, with the PiP
+inside it; the live scene stays in view above it, and an open Why overlay steps aside until the
+flashback closes.
+
 ## World scene content v1
 
 [`RendererContent`](../src/renderer-content.ts) is a separate, versioned renderer contract, outside
 world presentation v1. Supply an optional fifth argument to `new ThreeWorldSceneAdapter(parent,
-ready, unavailable, report, content)`. Omit it for the existing rendering path, including its existing
+ready, unavailable, report, content)` (a sixth, `limits`, caps a second renderer's tier and pixel
+ratio; see [Flashback picture-in-picture](#flashback-picture-in-picture)). Omit it for the existing rendering path, including its existing
 sprite ordering. Packs do not declare models; the platform never discovers content from pack data.
 A composition root explicitly imports trusted world code. This is a visual extension, not a sandbox
 for hostile JavaScript.

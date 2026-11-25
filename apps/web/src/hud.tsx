@@ -4,6 +4,7 @@ import type {
   WorldFeedCategory,
   WorldStatus,
 } from "@clockgrove/contracts";
+import { flashbackOpener } from "./flashback.js";
 import { Portrait } from "./portrait.js";
 import type { SceneSession } from "./scene-api.js";
 import { useEntityRail, useFeedSheet, useSceneView } from "./scene-state.js";
@@ -171,6 +172,23 @@ export function MaterialFeed({
                   </span>
                   <time>{eventTime(item.simTimeMs, status.clock)}</time>
                 </button>
+                {/* Issue 273: tapping an entry's flashback replays the moment it happened. */}
+                {item.sourceEventIds[0] !== undefined && (
+                  <button
+                    type="button"
+                    className="rw-feed-flashback"
+                    aria-label={`Flashback feed event ${item.sourceEventIds[0]}`}
+                    data-flashback-opener={`feed:${item.sourceEventIds[0]}`}
+                    onClick={(event) => {
+                      const eventId = item.sourceEventIds[0];
+                      if (eventId === undefined) return;
+                      flashbackOpener.current = event.currentTarget;
+                      session.flashback({ eventId });
+                    }}
+                  >
+                    Flashback
+                  </button>
+                )}
               </li>
             );
           })}

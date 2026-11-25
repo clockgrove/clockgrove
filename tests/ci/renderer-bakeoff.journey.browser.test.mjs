@@ -1256,6 +1256,47 @@ it.each(["webgpu", "webgl2"])(
         await neutral.evaluate(() => globalThis.fixtureRenderer.adapter.metrics.contentStatus),
       ).toBe("none");
       await neutral.close();
+      // Issue 273: a flashback's PiP (FLASHBACK_PIP_LIMITS, `stillFrames`) holding one journaled
+      // frame draws nothing while it holds still, even with world content, which reports a change
+      // on every update; a new frame draws again.
+      const pip = await open("?pip");
+      await pip.waitForFunction(
+        () => globalThis.fixtureRenderer.adapter.metrics.contentStatus === "ready",
+      );
+      await pip.evaluate(() => {
+        const adapter = globalThis.fixtureRenderer.adapter;
+        globalThis.fixtureRenderer.setReducedMotion(true);
+        globalThis.pipRenders = 0;
+        const draw = adapter.renderFrame;
+        adapter.renderFrame = function (...args) {
+          globalThis.pipRenders += 1;
+          return draw.apply(this, args);
+        };
+      });
+      // The draws across 30 of the page's animation frames.
+      const pipDraws = () =>
+        pip.evaluate(
+          () =>
+            new Promise((resolve) => {
+              const before = globalThis.pipRenders;
+              let left = 30;
+              const tick = () => {
+                if ((left -= 1) > 0) requestAnimationFrame(tick);
+                else resolve(globalThis.pipRenders - before);
+              };
+              requestAnimationFrame(tick);
+            }),
+        );
+      await expect.poll(pipDraws).toBe(0);
+      expect(
+        await pip.evaluate(() => globalThis.fixtureRenderer.diagnostics.updates),
+      ).toBeGreaterThan(0);
+      const stillDraws = await pip.evaluate(() => globalThis.pipRenders);
+      await pip.evaluate(() => globalThis.fixtureRenderer.moveMarker(1, 0));
+      await expect
+        .poll(() => pip.evaluate(() => globalThis.pipRenders))
+        .toBeGreaterThan(stillDraws);
+      await pip.close();
       for (const reason of ["load", "contract", "update", "draw", "vertex", "shader"]) {
         const failure = reason === "vertex" ? "contract" : reason === "shader" ? "draw" : reason;
         const failed = await open(`?failure=${reason}`);

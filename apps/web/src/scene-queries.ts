@@ -3,6 +3,8 @@ import type {
   ClientViewTrace,
   CommandId,
   EntitySelection,
+  Flashback,
+  FlashbackEntry,
   ObjectId,
   RecordedWhy,
   RecordedWhyEntry,
@@ -40,6 +42,15 @@ export type WhyQueryKey = readonly [
   number,
   RecordedWhyEntry | undefined,
 ];
+/** Issue 273: the open flashback's read; one at a time, keyed by observation and flashback intent. */
+export type FlashbackQueryKey = readonly [
+  "living-scene",
+  "flashback",
+  number,
+  BrowserScope | undefined,
+  number,
+  FlashbackEntry | undefined,
+];
 export type ViewTraceQueryKey = readonly [
   "living-scene",
   "view-trace",
@@ -61,6 +72,12 @@ export interface WhyProjection {
   readonly commandId: CommandId | undefined;
   readonly status: "none" | "loading" | "ready" | "unavailable" | "refused";
   readonly value: RecordedWhy | undefined;
+}
+export interface FlashbackProjection {
+  readonly entry: FlashbackEntry | undefined;
+  /** `not-found`: the runtime has no such event or command in this space (404), not a failure. */
+  readonly status: "none" | "loading" | "ready" | "unavailable" | "refused" | "not-found";
+  readonly value: Flashback | undefined;
 }
 export interface ViewTraceProjection {
   readonly status: "none" | "loading" | "ready" | "unavailable" | "refused";
@@ -116,6 +133,26 @@ export function whyProjection(
             : "unavailable"
           : "loading",
     value,
+  };
+}
+export function flashbackProjection(
+  entry: FlashbackEntry | undefined,
+  state: Pick<QueryState<Flashback>, "status" | "data" | "error"> | undefined,
+): FlashbackProjection {
+  return {
+    entry,
+    status: !entry
+      ? "none"
+      : state?.status === "success"
+        ? "ready"
+        : state?.status === "error"
+          ? state.error instanceof ApiRefusal && state.error.status === 429
+            ? "refused"
+            : state.error instanceof ApiRefusal && state.error.status === 404
+              ? "not-found"
+              : "unavailable"
+          : "loading",
+    value: state?.status === "success" ? state.data : undefined,
   };
 }
 export function viewTraceProjection(
@@ -200,6 +237,11 @@ export function useWhyQuery(session: SceneSession): WhyProjection {
   const queryKey = useReadKey(session, session.getWhyKey);
   const query = useQuery<RecordedWhy>({ queryKey, queryFn: skipToken }, session.queries);
   return whyProjection(queryKey[7], query);
+}
+export function useFlashbackQuery(session: SceneSession): FlashbackProjection {
+  const queryKey = useReadKey(session, session.getFlashbackKey);
+  const query = useQuery<Flashback>({ queryKey, queryFn: skipToken }, session.queries);
+  return flashbackProjection(queryKey[5], query);
 }
 export function useViewTraceQuery(session: SceneSession): ViewTraceProjection {
   const queryKey = useReadKey(session, session.getViewTraceKey);

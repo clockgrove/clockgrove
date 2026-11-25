@@ -178,6 +178,23 @@ body {
   max-width: 100%;
 }
 
+/* Issue 273: the flashback replays picture-in-picture over the corner while the live scene runs. */
+.rw-flashback-pip {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  z-index: 11;
+  background: var(--cg-v1-panel-solid);
+  border: 1px solid var(--cg-v1-border);
+  border-radius: var(--cg-v1-radius-md);
+}
+
+.rw-flashback-cites {
+  color: var(--cg-v1-text-muted);
+}
+
 .rw-main [role="alert"] {
   color: var(--cg-v1-error);
   border-left: 4px solid var(--cg-v1-error);
@@ -199,8 +216,22 @@ body {
 }
 
 .rw-feed li {
+  display: flex;
+  align-items: center;
+  gap: var(--cg-v1-space-1);
   padding: var(--cg-v1-space-1) 0;
   border-top: 1px solid var(--cg-v1-border);
+}
+
+.rw-feed li > .rw-feed-item {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Issue 273: each feed entry's flashback sits beside it, a control of its own. */
+.rw-feed-flashback {
+  flex: none;
+  font-size: 0.8rem;
 }
 
 .rw-feed .rw-panel-title {
@@ -365,6 +396,18 @@ body {
     border-width: 0 0 0 1px;
   }
 
+  /*
+   * Issue 273: the PiP sits over the rail's lower corner, so an open replay reserves its height
+   * (plus its 16px inset and a gap) at the rail's foot and the rail's last rows scroll clear of it.
+   */
+  .rw-shell:has(.rw-flashback-pip[data-pip-tier="medium"]) .rw-rail {
+    padding-bottom: calc(200px + 2 * 16px);
+  }
+
+  .rw-shell:has(.rw-flashback-pip[data-pip-tier="high"]) .rw-rail {
+    padding-bottom: calc(300px + 2 * 16px);
+  }
+
   .rw-feed-dock {
     position: fixed;
     left: 16px;
@@ -423,6 +466,36 @@ body {
     background: var(--cg-v1-panel-solid);
     border: 1px solid var(--cg-v1-border);
     border-radius: var(--cg-v1-radius-md);
+  }
+
+  /*
+   * Issue 273: a flashback is a sheet over the lower part of the viewport, above the Why overlay
+   * (50) and the rail and feed sheets (40, 30), so the heading it focuses is visible and the live
+   * scene keeps running in view above it. Its PiP flows inside it rather than under a sheet. While
+   * it is open the Why overlay steps aside, so the main view is not covered.
+   */
+  #rw-flashback {
+    position: fixed;
+    left: var(--cg-v1-space-3);
+    right: var(--cg-v1-space-3);
+    bottom: var(--cg-v1-space-3);
+    max-height: 50vh;
+    z-index: 60;
+    overflow: auto;
+    padding: var(--cg-v1-space-3);
+    background: var(--cg-v1-panel-solid);
+    border: 1px solid var(--cg-v1-border);
+    border-radius: var(--cg-v1-radius-md);
+    box-sizing: border-box;
+  }
+
+  .rw-shell:has(#rw-flashback) #rw-recorded-why {
+    display: none;
+  }
+
+  #rw-flashback .rw-flashback-pip {
+    position: static;
+    max-width: 100%;
   }
 
   .rw-rail {

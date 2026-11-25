@@ -26,6 +26,7 @@ import {
   softwareIdentity,
   startingTier,
   TARGET_FLOOR,
+  TIERS,
   TierGovernor,
   tierCeiling,
 } from "./quality-tier.js";
@@ -174,6 +175,18 @@ export type RendererMeasurement =
     };
 export type RendererReport = (point: RendererMeasurement) => void;
 export type { QualityTier } from "./quality-tier.js";
+/**
+ * Issue 273: what a second renderer (the flashback's picture-in-picture) is held to, so it adds no
+ * more than its declared budget: a tier ceiling for its own governor, a cap on its pixel ratio, and
+ * `stillFrames`, which draws only when what it shows changes (a snapshot, a resize, a tier, content
+ * becoming ready), never once per animation frame for world content that holds still.
+ */
+export interface RendererLimits {
+  readonly tierCeiling?: QualityTier;
+  readonly maxPixelRatio?: number;
+  readonly stillFrames?: boolean;
+}
+
 /** #184: output caps reserve texture headroom inside 16/64/192 MiB tier ceilings.
  * Renderer policy, based on #67's tier split. Emission is linear RGB luminance, before grading. */
 export const SCENE_QUALITY = {
@@ -508,6 +521,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private previousTime: number | undefined;
   private framesSinceReport = 0;
   private tier: QualityTier = "low";
+  private tierKnown = false;
+  private readonly tierHandlers = new Set<(tier: QualityTier) => void>();
   /** #356: the device's reported capabilities and the frame-time judge built from them. */
   private device: DeviceProfile | undefined;
   private governor: TierGovernor | undefined;
@@ -603,6 +618,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     unavailable: (reason: "renderer_unavailable" | "assets_unavailable") => void,
     report: RendererReport = () => {},
     private readonly suppliedContent?: RendererContent,
+    private readonly limits: RendererLimits = {},
   ) {
     this.parent = parent;
     this.ready = ready;
@@ -675,6 +691,15 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       });
     }
   }
+  /** Issue 273: the device's tier, held at or under the caller's ceiling when it gave one. */
+  private capped(tier: QualityTier): QualityTier {
+    const ceiling = this.limits.tierCeiling;
+    return ceiling !== undefined && TIERS.indexOf(ceiling) < TIERS.indexOf(tier) ? ceiling : tier;
+  }
+  /** Issue 273: the device pixel ratio, held at or under the caller's cap when it gave one. */
+  private pixelRatio(): number {
+    return Math.min(globalThis.devicePixelRatio || 1, this.limits.maxPixelRatio ?? Infinity);
+  }
   private async initialize(): Promise<void> {
     try {
       await this.renderer.init();
@@ -683,8 +708,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.observeContentErrors();
       this.device = this.readDevice();
       this.maxDimension = this.device.maxDimension;
-      this.governor = new TierGovernor(tierCeiling(this.device), FRAME_BUDGET_MS);
-      this.setQuality(startingTier(this.device));
+      this.governor = new TierGovernor(this.capped(tierCeiling(this.device)), FRAME_BUDGET_MS);
+      this.setQuality(this.capped(startingTier(this.device)));
       this.frame = requestAnimationFrame(this.step);
       await this.create();
       void this.initializeContent();
@@ -933,7 +958,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         Math.floor((quality.textureBytes - this.resourceTextureBytes) / bytesPerPixel),
       ),
     );
-    const dpr = globalThis.devicePixelRatio || 1;
+    const dpr = this.pixelRatio();
     const scale = Math.min(dpr, Math.sqrt(pixelBudget / (width * height)));
     // Keep the low scene target and every bloom mip at least 1×1.
     // Clamp area and each axis to the 4096 target floor and the device's reported maximum side (#356).
@@ -1079,7 +1104,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     };
     const rendition = selectMaterialRendition(
       material,
-      globalThis.devicePixelRatio ?? 1,
+      this.pixelRatio(),
       remaining(),
       ["albedo"],
       loader !== undefined,
@@ -1397,6 +1422,13 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.rebuildReflections();
     this.updateTextureBytes();
     this.dirty = true;
+    this.tierKnown = true;
+    for (const handler of [...this.tierHandlers]) handler(tier);
+  }
+  onQualityTier(handler: (tier: QualityTier) => void): () => void {
+    this.tierHandlers.add(handler);
+    if (this.tierKnown) handler(this.tier);
+    return () => this.tierHandlers.delete(handler);
   }
   private applyMaterialTier(contentOnly = false): void {
     const contentMeshes = new Set<THREE.Object3D>();
@@ -2555,7 +2587,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private readonly step = (frameTime: number) => {
     if (this.destroyed) return;
     this.frame = requestAnimationFrame(this.step);
-    if (this.devicePixelRatio !== (globalThis.devicePixelRatio || 1)) this.resizeViewport();
+    if (this.devicePixelRatio !== this.pixelRatio()) this.resizeViewport();
     if (!this.initialized || (ATLASES && this.atlasTextures.length === 0) || !this.projection)
       return;
     const delta = this.previousTime === undefined ? 0 : frameTime - this.previousTime;
@@ -2617,7 +2649,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.cues = this.cues.filter((cue) => time < cue.end);
     if (cueCount !== this.cues.length) this.updateTextureBytes();
     this.contentTime = time;
-    changed = this.updateContent(time) || changed;
+    // Issue 273: a still renderer updates its content only on a frame it already draws, since world
+    // content reports a change on every update.
+    if (!this.limits.stillFrames || changed) changed = this.updateContent(time) || changed;
     changed = this.animate(time) || changed;
     const selected = this.selected === undefined ? undefined : this.drawn.get(this.selected);
     if (selected) this.moveSelection(selected);
@@ -2746,6 +2780,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.tierHandlers.clear();
     this.resizeObserver?.disconnect();
     this.restoreContentErrors?.();
     this.restoreContentErrors = undefined;
