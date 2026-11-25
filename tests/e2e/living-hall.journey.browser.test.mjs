@@ -1815,8 +1815,9 @@ const observeHall = async (backend) => {
         expect(
           await whyPanel.getByText("Child commands: None", { exact: true }).textContent(),
         ).toBe("Child commands: None");
-        // Issue 273: the Why's flashback replays the moment read-only from the journal. The panel shows the runtime's own answer, the cited summary without private
-        // refs, a scrubbable replay at the live tier's budget, and steps back through its causes.
+        // Issue 273: the Why's flashback replays the moment read-only from the journal. The panel
+        // shows the runtime's own answer, the cited summary without private refs, a scrubbable
+        // replay at the live tier's budget, and steps back through its causes.
         const flashbackState = [await commands(), await durable()];
         const flashbackOf = async (fields) => {
           const answer = await page.request.post(
