@@ -16,6 +16,11 @@ INSERT INTO clockgrove.world_memberships(tenant_id,world_id,timeline_id,space_id
  ('tenant-j-a','world-j-a','timeline-j-a','space-j-a','principal-j-c','hook-member','hook-persona-c',ARRAY['member'],'{}','{"version":1,"allowedCategories":["operator_evidence"]}',statement_timestamp()),
  ('tenant-j-a','world-j-a','timeline-j-a','space-j-a','principal-j-d','hook-inspector','hook-persona-d',ARRAY['member'],ARRAY['runtime:world-inspect','runtime:world-operate'],'{"version":1,"allowedCategories":["operator_evidence"]}',statement_timestamp());
 
+-- One usage event in the space, after every webhook's cursor, so each webhook below has usage to
+-- send.
+INSERT INTO clockgrove.usage_events(tenant_id,event_id,world_id,timeline_id,space_id,category,source,status,principal_id,actor_id,session_id,quantities,occurred_at)
+ VALUES ('tenant-j-a','hook-usage-1','world-j-a','timeline-j-a','space-j-a','delivery','delivery_receipt','delivered','principal-j-c','actor-j','session-j','{"deliveries":1}',statement_timestamp());
+
 -- The owner, given no webhook grant, registers by default through row-level security, sees exactly their row, and it is due.
 SET LOCAL ROLE clockgrove_runtime;
 SELECT set_config('app.tenant_id','tenant-j-a',true),set_config('app.principal_id','principal-j-a',true),
@@ -150,6 +155,23 @@ DO $$ BEGIN
  IF (SELECT string_agg(principal_id,',' ORDER BY principal_id) FROM clockgrove.due_usage_webhooks(10))
     IS DISTINCT FROM 'principal-j-a,principal-j-d' THEN
   RAISE EXCEPTION 'the delegate''s webhook was not due beside the owner''s';
+ END IF;
+END $$;
+-- A webhook with nothing after its cursor is not due, so idle webhooks never fill the sweep's
+-- bound; the next usage event makes it due again.
+UPDATE clockgrove.usage_webhooks SET delivered_through=(SELECT max(sequence) FROM clockgrove.usage_events)
+ WHERE principal_id='principal-j-a';
+DO $$ BEGIN
+ IF (SELECT string_agg(principal_id,',') FROM clockgrove.due_usage_webhooks(10))
+    IS DISTINCT FROM 'principal-j-d' THEN
+  RAISE EXCEPTION 'an idle webhook was due';
+ END IF;
+END $$;
+INSERT INTO clockgrove.usage_events(tenant_id,event_id,world_id,timeline_id,space_id,category,source,status,principal_id,actor_id,session_id,quantities,occurred_at)
+ VALUES ('tenant-j-a','hook-usage-2','world-j-a','timeline-j-a','space-j-a','delivery','delivery_receipt','delivered','principal-j-c','actor-j','session-j','{"deliveries":1}',statement_timestamp());
+DO $$ BEGIN
+ IF (SELECT count(*) FROM clockgrove.due_usage_webhooks(10))<>2 THEN
+  RAISE EXCEPTION 'a webhook with new usage was not due';
  END IF;
 END $$;
 SELECT 'usage_webhooks_ok';

@@ -48,7 +48,9 @@ export class PostgreSqlUsageWebhooks {
   constructor(private readonly client: PostgreSqlClient) {}
 
   /**
-   * Registers or replaces the webhook, keeping its ID and cursor; `null` disables it. The
+   * Registers or replaces the webhook, keeping its ID and cursor; `null` disables it. A new
+   * webhook, or a disabled one enabled again, starts its cursor at the space's newest usage event,
+   * so it posts only usage from then on (earlier usage is the query's). The
    * `usage-webhook` audit row (`auditEntry`: the URL's origin or `disabled`) is written in the same
    * transaction, so a standing export never exists without its audit row.
    */
@@ -61,10 +63,18 @@ export class PostgreSqlUsageWebhooks {
     const found = await this.within(authorization, async (query) => {
       const rows = await query(
         `INSERT INTO clockgrove.usage_webhooks
-           (tenant_id, world_id, timeline_id, space_id, principal_id, webhook_id, url)
-         VALUES ($1, $2, $3, $4, $5, gen_random_uuid()::text, $6)
+           (tenant_id, world_id, timeline_id, space_id, principal_id, webhook_id, url,
+            delivered_through)
+         VALUES ($1, $2, $3, $4, $5, gen_random_uuid()::text, $6,
+           (SELECT coalesce(max(sequence), 0) FROM clockgrove.usage_events
+             WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND space_id = $4))
          ON CONFLICT (tenant_id, world_id, timeline_id, space_id, principal_id) DO UPDATE
-           SET url = excluded.url, attempts = 0, next_attempt_at = statement_timestamp(),
+           SET url = excluded.url,
+               delivered_through = CASE
+                 WHEN usage_webhooks.url IS NULL AND excluded.url IS NOT NULL
+                   THEN excluded.delivered_through
+                 ELSE usage_webhooks.delivered_through END,
+               attempts = 0, next_attempt_at = statement_timestamp(),
                last_status = NULL, updated_at = statement_timestamp()
          RETURNING webhook_id`,
         [

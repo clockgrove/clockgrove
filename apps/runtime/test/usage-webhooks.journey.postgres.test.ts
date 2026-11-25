@@ -151,16 +151,38 @@ it.skipIf(!isNativeWorldOwnerChild())(
           `SELECT attempts || ',' || last_status || ',' || delivered_through || ',' || (lease_until IS NULL)
              FROM clockgrove.usage_webhooks`,
         );
+      const listed = () =>
+        withClient(owner.fixture.environment, (client) =>
+          new PostgreSqlUsageWebhooks(client).due(100),
+        );
+      // The usage of the talk before registration is not the webhook's to post: it starts after the
+      // space's newest event, and with nothing after its cursor it is not due at all.
+      const before = await owner.sql("SELECT max(sequence)::text FROM clockgrove.usage_events");
+      expect(Number(before)).toBeGreaterThan(0);
+      expect(await owner.sql("SELECT delivered_through::text FROM clockgrove.usage_webhooks")).toBe(
+        before,
+      );
+      expect(await listed()).toEqual([]);
+      expect(await sweep()).toEqual({ delivered: 0, failed: 0 });
+      expect(posts).toHaveLength(0);
+
+      await owner.request(
+        "/v1/runtime/talk",
+        { version: 1, ...owner.scope, sessionId: session, messageId: "m1b", text: "Hello again." },
+        MEMBER,
+      );
       const sequences = (
         await owner.sql(
-          "SELECT string_agg(sequence::text, ',' ORDER BY sequence) FROM clockgrove.usage_events",
+          `SELECT string_agg(sequence::text, ',' ORDER BY sequence) FROM clockgrove.usage_events
+            WHERE sequence > ${before}`,
         )
       ).split(",");
       expect(sequences).toHaveLength(2);
+      expect(await listed()).toHaveLength(1);
 
       // The endpoint refuses: the cursor stays and the retry waits.
       expect(await sweep()).toEqual({ delivered: 0, failed: 1 });
-      expect(await state()).toBe("1,http_500,0,true");
+      expect(await state()).toBe(`1,http_500,${before},true`);
       expect(await sweep()).toEqual({ delivered: 0, failed: 0 });
       expect(posts).toHaveLength(1);
 
@@ -186,7 +208,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(body.events[0]?.eventId).toMatch(/^run_step:.+:2$/u);
       expect(await state()).toBe(`0,delivered,${sequences[1]},true`);
 
-      // Nothing is left to send, so a delivered event is never posted again.
+      // Nothing is left to send, so the webhook is not listed and a delivered event is never
+      // posted again.
+      expect(await listed()).toEqual([]);
       expect(await sweep()).toEqual({ delivered: 0, failed: 0 });
       expect(posts).toHaveLength(2);
 

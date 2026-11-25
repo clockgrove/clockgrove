@@ -13,7 +13,9 @@ CREATE TABLE clockgrove.usage_webhooks (
   -- Random at first registration and kept on re-registration; the signing secret derives from it.
   webhook_id text NOT NULL CHECK (octet_length(webhook_id) BETWEEN 1 AND 128),
   url text CHECK (url ~ '^https://' AND octet_length(url) <= 2048),
-  -- Every usage event with a sequence up to this one has been delivered.
+  -- Every usage event with a sequence up to this one has been delivered, or predates the webhook:
+  -- registering (or enabling a disabled one) sets it to the space's newest usage event, so a new
+  -- webhook posts only usage from then on and earlier usage is left to the query.
   delivered_through bigint NOT NULL DEFAULT 0 CHECK (delivered_through >= 0),
   attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
   next_attempt_at timestamptz NOT NULL DEFAULT statement_timestamp(),
@@ -93,6 +95,13 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, clockgrove AS
     FROM clockgrove.usage_webhooks AS w
    WHERE w.url IS NOT NULL AND w.next_attempt_at <= statement_timestamp()
      AND (w.lease_until IS NULL OR w.lease_until <= statement_timestamp())
+     -- Only with usage to send: an idle webhook takes no place in the sweep's bound, so the 100
+     -- listed per run are webhooks with an event after their cursor.
+     AND EXISTS (
+       SELECT 1 FROM clockgrove.usage_events AS e
+        WHERE e.tenant_id = w.tenant_id AND e.world_id = w.world_id
+          AND e.timeline_id = w.timeline_id AND e.space_id = w.space_id
+          AND e.sequence > w.delivered_through)
      -- Only while the registrar may still read the usage (`runtime_usage_reader`'s grant and
      -- ceiling) and still holds `runtime:usage-webhook`: a webhook whose registrar lost any of
      -- them is not due, so it never crowds out the rest.

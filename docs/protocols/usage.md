@@ -149,7 +149,10 @@ that grant, an actor or `system:` identity never qualifies, even holding it expl
 `runtime:world-operate` does not imply it. A
 caller without it is refused (403). The caller holds one
 webhook per space: registering again replaces its URL and keeps its ID,
-cursor and secret; `"url": null` disables it. The URL is `https` to a public host name (no IP
+cursor and secret; `"url": null` disables it. A new webhook, or a disabled one enabled again,
+starts after the space's newest usage event: it posts only usage recorded from then on, and earlier
+usage is read with the query (so a forward to Stripe, which takes timestamps within 35 days, never
+starts with a backlog it refuses). The URL is `https` to a public host name (no IP
 address, single label, or `localhost`, `.local`, `.internal`, `.home`, `.lan`, `.arpa`, `.test` or
 `.invalid` name), without credentials, at most 2048 bytes; it is stored, posted to and answered in
 its normalised form (`HTTPS://Billing.Example` is `https://billing.example/`), and any other is a
@@ -165,7 +168,8 @@ The deployment sets `USAGE_WEBHOOK_SECRET`; without it the route answers 503 `in
 Each webhook's signing secret is derived from it and the webhook ID (`whsec_` and the base64 of
 HMAC-SHA256), so Clockgrove stores none; registering again returns the same secret.
 
-Every 5 minutes (the runtime's recovery cron) the due webhooks, at most 100, take turns: each gets
+Every 5 minutes (the runtime's recovery cron) the due webhooks, at most 100, take turns
+(a webhook is due only with an event after its cursor, so an idle one takes none of the 100): each gets
 its next events after its cursor, at most 100 per post, and one whose full page was delivered goes
 to the back for its next page, so every due webhook gets its first page before any gets a second.
 The run starts no post after 60 s, a fifth of the cron interval, so with the 10 s post timeout it
