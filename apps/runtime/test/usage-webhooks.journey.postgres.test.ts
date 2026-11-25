@@ -23,7 +23,8 @@ it.skipIf(isNativeWorldOwnerChild())(
   async () => {
     await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
       // The member talks; a second principal, not an owner, holds the inspect and operate grants and
-      // operator evidence, and is delegated `runtime:usage-webhook` during the test.
+      // operator evidence; during the test it registers as an owner, then as a delegate of
+      // `runtime:usage-webhook`.
       prepare: async (fixture) => {
         const { truthOf } = await import("./world-fixture.js");
         await truthOf(fixture)(
@@ -79,24 +80,46 @@ it.skipIf(!isNativeWorldOwnerChild())(
         INSPECTOR,
       );
       expect(unauthorized.status).toBe(403);
+      // A world's owner holds `runtime:usage-webhook` by default: made an owner, with no explicit
+      // webhook grant, the same principal registers through the route.
       await owner.sql(
-        `UPDATE clockgrove.world_memberships SET grants = array_append(grants, 'runtime:usage-webhook')
+        `UPDATE clockgrove.world_memberships SET roles = ARRAY['owner']
           WHERE principal_id = 'principal-outsider'`,
       );
-      // The inspector registers through the route and receives the webhook's signing secret once.
+      const asOwner = await owner.request(
+        "/v1/runtime/usage/webhook",
+        { version: 1, ...owner.scope, url: "https://hooks.example/usage" },
+        INSPECTOR,
+      );
+      expect(asOwner.status).toBe(200);
+      // No longer the owner, the principal is delegated the grant instead.
+      await owner.sql(
+        `UPDATE clockgrove.world_memberships
+            SET roles = ARRAY['member'], grants = array_append(grants, 'runtime:usage-webhook')
+          WHERE principal_id = 'principal-outsider'`,
+      );
+      // The delegate registers through the route and receives the webhook's signing secret; the
+      // re-registration keeps the webhook.
       const registered = await owner.request(
         "/v1/runtime/usage/webhook",
         { version: 1, ...owner.scope, url: "https://hooks.example/usage" },
         INSPECTOR,
       );
       expect(registered.status).toBe(200);
-      // The registration commits with its audit row, naming where the export now goes.
+      expect((registered.body as UsageWebhookRegistration).webhookId).toBe(
+        (asOwner.body as UsageWebhookRegistration).webhookId,
+      );
+      // Each registration commits with its audit row, naming where the export now goes.
       expect(
         await owner.sql(
           `SELECT string_agg(concat_ws('|', principal_id, subject, entry_id, decision, reason_code), ',')
              FROM clockgrove.inspector_accesses WHERE subject = 'usage-webhook'`,
         ),
-      ).toBe("principal-outsider|usage-webhook|https://hooks.example|allow|served");
+      ).toBe(
+        [1, 2]
+          .map(() => "principal-outsider|usage-webhook|https://hooks.example|allow|served")
+          .join(","),
+      );
       const { webhookId, signingSecret } = registered.body as UsageWebhookRegistration;
       const secret = await usageWebhookSecret(NATIVE_USAGE_WEBHOOK_SECRET, webhookId);
       expect(signingSecret).toBe(secret);

@@ -84,7 +84,8 @@ DO $$ BEGIN
 END $$;
 
 -- A registrar who loses the membership, the ceiling, the inspect grant or the webhook authority
--- (no longer the owner, with `runtime:world-operate` in its place; an owner that is an actor) stops:
+-- (no longer the owner, with `runtime:world-operate` in its place; an owner that is an actor, even
+-- holding `runtime:usage-webhook` explicitly, as 0046's install authority refuses one) stops:
 -- their webhook is not due, and without the membership or the inspect grant they no longer see it.
 -- Restored, it is due again.
 DO $$ DECLARE change text; restore text; BEGIN
@@ -93,7 +94,8 @@ DO $$ DECLARE change text; restore text; BEGIN
   'privacy_ceiling=''{"version":1,"allowedCategories":["public_scene"]}''',
   'grants=''{}''::text[]',
   'roles=ARRAY[''member''],grants=ARRAY[''runtime:world-inspect'',''runtime:world-operate'']',
-  'roles=ARRAY[''owner'',''actor'']'] LOOP
+  'roles=ARRAY[''owner'',''actor'']',
+  'roles=ARRAY[''owner'',''actor''],grants=ARRAY[''runtime:world-inspect'',''runtime:usage-webhook'']'] LOOP
   EXECUTE 'UPDATE clockgrove.world_memberships SET '||change||' WHERE membership_id=''hook-registrar''';
   IF (SELECT count(*) FROM clockgrove.due_usage_webhooks(10))<>0 THEN
    RAISE EXCEPTION 'a webhook stayed due after %', change;
@@ -115,6 +117,21 @@ DO $$ DECLARE change text; restore text; BEGIN
   END IF;
  END LOOP;
 END $$;
+-- An actor never points a webhook at a host, even holding `runtime:usage-webhook` explicitly.
+UPDATE clockgrove.world_memberships SET roles=ARRAY['member','actor'],
+ grants=ARRAY['runtime:world-inspect','runtime:usage-webhook'] WHERE membership_id='hook-inspector';
+SET LOCAL ROLE clockgrove_runtime;
+SELECT set_config('app.principal_id','principal-j-d',true);
+DO $$ BEGIN
+ BEGIN
+  INSERT INTO clockgrove.usage_webhooks(tenant_id,world_id,timeline_id,space_id,principal_id,webhook_id,url)
+   VALUES ('tenant-j-a','world-j-a','timeline-j-a','space-j-a','principal-j-d','hook-d','https://hooks.example/d');
+  RAISE EXCEPTION 'an actor with the webhook grant set a webhook URL' USING ERRCODE='XX999';
+ EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+END $$;
+RESET ROLE;
+UPDATE clockgrove.world_memberships SET roles=ARRAY['member'],
+ grants=ARRAY['runtime:world-inspect','runtime:world-operate'] WHERE membership_id='hook-inspector';
 -- The owner delegates `runtime:usage-webhook` to the inspector, who now registers their own.
 UPDATE clockgrove.world_memberships SET grants=array_append(grants,'runtime:usage-webhook')
  WHERE membership_id='hook-inspector';

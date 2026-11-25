@@ -32,13 +32,13 @@ CREATE TABLE clockgrove.usage_webhooks (
 -- schedule, the egress an outbound MCP server has, so setting a URL takes the same narrow,
 -- owner-held authority (the owner's decision of 2026-11-25): `runtime:usage-webhook`, which a
 -- world's owner holds by default and may delegate as `runtime:mcp-install` (0046), beside the usage
--- reader's grant and ceiling. As the runtime's membership reader, an actor or `system:` identity
--- gets no owner default. `runtime:world-operate` alone is not enough. Disabling (a NULL URL) and
--- the sweep's cursor and retry updates need only the reader's.
+-- reader's grant and ceiling. As in 0046's `mcp_install_authorized`, an actor or `system:`
+-- identity never qualifies, even with the explicit grant. `runtime:world-operate` alone is not
+-- enough. Disabling (a NULL URL) and the sweep's cursor and retry updates need only the reader's.
 CREATE FUNCTION clockgrove.usage_webhook_authority(roles text[], grants text[], p text)
 RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = pg_catalog AS $$
-  SELECT 'runtime:usage-webhook' = ANY(grants)
-      OR ('owner' = ANY(roles) AND NOT 'actor' = ANY(roles) AND left(p, 7) <> 'system:')
+  SELECT NOT 'actor' = ANY(roles) AND left(p, 7) <> 'system:'
+     AND ('runtime:usage-webhook' = ANY(grants) OR 'owner' = ANY(roles))
 $$;
 REVOKE ALL ON FUNCTION clockgrove.usage_webhook_authority(text[], text[], text) FROM PUBLIC;
 CREATE FUNCTION clockgrove.runtime_usage_webhook_registrar(t text, w text, tl text, s text)
