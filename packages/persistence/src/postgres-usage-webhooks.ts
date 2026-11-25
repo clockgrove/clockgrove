@@ -103,7 +103,10 @@ export class PostgreSqlUsageWebhooks {
     }));
   }
 
-  /** Takes the webhook for `leaseMs` unless another sweep holds it or it is not yet due. */
+  /**
+   * Takes the webhook for `leaseMs` unless another sweep holds it, it is not yet due, or its
+   * registrar lost `runtime:usage-webhook` since the due listing.
+   */
   async claim(key: UsageWebhookKey, leaseMs: number): Promise<ClaimedUsageWebhook | null> {
     const found = await this.within(usageWebhookAuthorization(key), (query) =>
       query(
@@ -114,7 +117,7 @@ export class PostgreSqlUsageWebhooks {
         RETURNING webhook_id, url, delivered_through::text AS delivered_through`,
         [...keyValues(key), leaseMs],
       ),
-    );
+    ).catch(notDue);
     const row = found[0];
     return row === undefined
       ? null
@@ -149,7 +152,8 @@ export class PostgreSqlUsageWebhooks {
   }
 
   /**
-   * Records a delivery's end and releases the lease. Success moves the cursor and is due again at
+   * Records a delivery's end and releases the lease. A registrar who lost `runtime:usage-webhook`
+   * since the due listing changes nothing: the cursor stays and the lease runs out. Success moves the cursor and is due again at
    * once; failure keeps the cursor and waits 2^attempts seconds, at most 300.
    */
   async settle(key: UsageWebhookKey, outcome: UsageWebhookOutcome): Promise<void> {
@@ -173,7 +177,7 @@ export class PostgreSqlUsageWebhooks {
               WHERE ${KEY}`,
             [...keyValues(key), outcome.status],
           ),
-    );
+    ).catch(notDue);
   }
 
   private within(
@@ -186,6 +190,15 @@ export class PostgreSqlUsageWebhooks {
       operation(async (text, values) => (await this.client.query(text, values)).rows as Row[]),
     );
   }
+}
+
+/**
+ * Row-level security refused the update (`42501`): the registrar lost `runtime:usage-webhook` after
+ * the due listing, so the webhook is no longer due. It changes nothing, as an unlisted one would.
+ */
+function notDue(error: unknown): Row[] {
+  if ((error as { code?: unknown }).code === "42501") return [];
+  throw error;
 }
 
 const KEY =

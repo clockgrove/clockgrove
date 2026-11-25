@@ -34,7 +34,10 @@ CREATE TABLE clockgrove.usage_webhooks (
 -- world's owner holds by default and may delegate as `runtime:mcp-install` (0046), beside the usage
 -- reader's grant and ceiling. As in 0046's `mcp_install_authorized`, an actor or `system:`
 -- identity never qualifies, even with the explicit grant. `runtime:world-operate` alone is not
--- enough. Disabling (a NULL URL) and the sweep's cursor and retry updates need only the reader's.
+-- enough. Disabling (a NULL URL) needs only the reader's. The sweep's lease, cursor and retry
+-- updates keep the URL, so they too need `runtime:usage-webhook`: the due listing skips a
+-- registrar who lost it, and one who loses it after the listing has the claim or settle refused,
+-- which the sweep reads as not due.
 CREATE FUNCTION clockgrove.usage_webhook_authority(roles text[], grants text[], p text)
 RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = pg_catalog AS $$
   SELECT NOT 'actor' = ANY(roles) AND left(p, 7) <> 'system:'
