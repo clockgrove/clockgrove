@@ -1,7 +1,7 @@
 import { decodeOpaqueId, type ObjectId, type SimTimeMs } from "@clockgrove/contracts";
 import { DomainValidationError } from "./actor-process.js";
 import type { ContainmentPayload } from "./commands/containment-commands.js";
-import { EnvironmentValidationError } from "./environment/environment.js";
+import { type EnvironmentPolicy, EnvironmentValidationError } from "./environment/environment.js";
 import { regionContains } from "./spatial/region.js";
 import type { WorldBehaviorPolicy, WorldState } from "./world.js";
 
@@ -12,7 +12,14 @@ export interface SurfaceBand {
 }
 export type SurfaceRecovery =
   | { readonly driver: "none" }
-  | { readonly driver: "time"; readonly amount: number; readonly periodMs: bigint };
+  | { readonly driver: "time"; readonly amount: number; readonly periodMs: bigint }
+  | { readonly driver: "rain"; readonly amount: number; readonly periodMs: bigint }
+  | {
+      readonly driver: "growth";
+      readonly amount: number;
+      readonly periodMs: bigint;
+      readonly lightBands: readonly string[];
+    };
 export interface SurfaceChannel {
   readonly id: string;
   readonly max: number;
@@ -32,6 +39,8 @@ export interface SurfaceZone {
   readonly host: SurfaceHost;
   readonly channels: readonly SurfaceZoneChannel[];
   readonly markCapacity: number;
+  /** An interaction applied to every actor entering the region host (a worn path, tracked mud). */
+  readonly traffic?: string;
 }
 export interface SurfaceEffect {
   readonly channel: string;
@@ -100,12 +109,28 @@ export interface SurfaceBandCrossedPayload {
   readonly bands: readonly string[];
   readonly previousBands: readonly string[];
 }
+/** A rain channel settled where the rain the world holds changes; rides on the weather event. */
+export interface SurfaceRainSettlement {
+  readonly zoneId: string;
+  readonly channel: string;
+  readonly value: number;
+  readonly remainder: bigint;
+}
 export interface SurfaceRepairedPayload {
   readonly zoneId: string;
   readonly reason: string;
   readonly removed: readonly { readonly channel: string; readonly amount: number }[];
 }
+export interface SurfaceCarriedDrainedPayload {
+  readonly actorId: ObjectId;
+  readonly removed: readonly { readonly channel: string; readonly amount: number }[];
+  readonly cause: "died";
+}
 export type SurfaceEventData =
+  | {
+      readonly type: "surface.carried-drained";
+      readonly payload: SurfaceCarriedDrainedPayload;
+    }
   | {
       readonly type: "surface.interacted";
       readonly payload: SurfaceInteractedPayload;
@@ -130,6 +155,10 @@ const MAX_CHANNEL_VALUE = 1_000_000;
 const MAX_INTENSITY = 10_000;
 const MAX_TIME = (1n << 63n) - 1n;
 const MAX_DURATION = 1n << 53n;
+// floor(2^53 / 10000): keeps the rain remainder (below periodMs * 10000) under the state bound.
+const MAX_RAIN_PERIOD = 900_719_925_474n;
+const FULL_RAIN = 10_000n;
+const MAX_LIGHT_BANDS = 64;
 const BUDGET_CHECK = "surface.budget@1";
 const BUDGET_MESSAGE = `surface budget exceeded (${BUDGET_CHECK})`;
 
@@ -208,11 +237,28 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
       int(b.max, min, max, `${bandPath}.max`);
     });
     const recovery = entry.recovery as Record<string, unknown> | null;
-    if (recovery !== null && typeof recovery === "object" && recovery.driver === "time") {
-      const r = record(recovery, ["driver", "amount", "periodMs"], `${path}.recovery`);
+    const driver = recovery !== null && typeof recovery === "object" ? recovery.driver : undefined;
+    if (driver === "time" || driver === "rain" || driver === "growth") {
+      const r = record(
+        recovery,
+        driver === "growth"
+          ? ["driver", "amount", "periodMs", "lightBands"]
+          : ["driver", "amount", "periodMs"],
+        `${path}.recovery`,
+      );
       int(r.amount, 1, Number.MAX_SAFE_INTEGER, `${path}.recovery.amount`);
-      if (typeof r.periodMs !== "bigint" || r.periodMs <= 0n || r.periodMs > MAX_DURATION)
+      const limit = driver === "rain" ? MAX_RAIN_PERIOD : MAX_DURATION;
+      if (typeof r.periodMs !== "bigint" || r.periodMs <= 0n || r.periodMs > limit)
         bad(`${path}.recovery.periodMs`);
+      if (driver === "growth") {
+        const bandsPath = `${path}.recovery.lightBands`;
+        const seenBands = new Set<string>();
+        array(r.lightBands, 1, MAX_LIGHT_BANDS, bandsPath).forEach((band, k) => {
+          const bandName = name(band, `${bandsPath}[${k}]`);
+          if (seenBands.has(bandName)) bad(`${bandsPath}[${k}]`);
+          seenBands.add(bandName);
+        });
+      }
     } else {
       const r = record(recovery, ["driver"], `${path}.recovery`);
       if (r.driver !== "none") bad(`${path}.recovery.driver`);
@@ -222,9 +268,13 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
   const zones = array(raw.zones, 0, MAX_SURFACE_ZONES, `${root}.zones`);
   if (zones.length > zoneBudget) overBudget(`${root}.zones`);
   const zoneIds = new Set<string>();
+  const traffic: { path: string; zone: Record<string, unknown> }[] = [];
   zones.forEach((candidate, i) => {
     const path = `${root}.zones[${i}]`;
-    const entry = record(candidate, ["id", "host", "channels", "markCapacity"], path);
+    const withTraffic =
+      candidate !== null && typeof candidate === "object" && Object.hasOwn(candidate, "traffic");
+    const keys = ["id", "host", "channels", "markCapacity"];
+    const entry = record(candidate, withTraffic ? [...keys, "traffic"] : keys, path);
     const id = name(entry.id, `${path}.id`);
     if (zoneIds.has(id)) bad(`${path}.id`);
     zoneIds.add(id);
@@ -252,8 +302,13 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
     });
     const capacity = int(entry.markCapacity, 0, MAX_SURFACE_MARKS, `${path}.markCapacity`);
     if (capacity > markBudget) overBudget(`${path}.markCapacity`);
+    if (withTraffic) {
+      name(entry.traffic, `${path}.traffic`);
+      traffic.push({ path, zone: entry });
+    }
   });
   const interactionIds = new Set<string>();
+  const effectChannels = new Map<string, readonly string[]>();
   array(raw.interactions, 0, MAX_SURFACE_INTERACTIONS, `${root}.interactions`).forEach(
     (candidate, i) => {
       const path = `${root}.interactions[${i}]`;
@@ -262,10 +317,13 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
       if (interactionIds.has(id)) bad(`${path}.id`);
       interactionIds.add(id);
       if (typeof entry.leavesMark !== "boolean") bad(`${path}.leavesMark`);
+      const used: string[] = [];
+      effectChannels.set(id, used);
       array(entry.effects, 1, MAX_SURFACE_EFFECTS, `${path}.effects`).forEach((effect, k) => {
         const effectPath = `${path}.effects[${k}]`;
         const e = record(effect, ["channel", "kind", "amount"], effectPath);
         const channel = channels.get(name(e.channel, `${effectPath}.channel`));
+        used.push(e.channel as string);
         if (channel === undefined) bad(`${effectPath}.channel`);
         if (e.kind !== "add" && e.kind !== "pickup" && e.kind !== "deposit")
           bad(`${effectPath}.kind`);
@@ -274,6 +332,13 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
       });
     },
   );
+  for (const { path, zone } of traffic) {
+    const used = effectChannels.get(zone.traffic as string);
+    const host = zone.host as { kind: string };
+    const has = (zone.channels as { channel: string }[]).map((c) => c.channel);
+    if (host.kind !== "region" || used === undefined || used.some((c) => !has.includes(c)))
+      bad(`${path}.traffic`);
+  }
 }
 
 function stateBad(path: string): never {
@@ -338,25 +403,143 @@ export function surfaceBands(channel: SurfaceChannel, value: number): readonly s
   return channel.bands.filter((band) => value >= band.min && value <= band.max).map((b) => b.name);
 }
 
+interface RecoveryClock {
+  /** Recovery weight accrued over [0, t). */
+  readonly cumulative: (t: bigint) => bigint;
+  /** Smallest t with cumulative(t) >= target (target > 0), or null when never. */
+  readonly invert: (target: bigint) => bigint | null;
+  readonly divisor: bigint;
+}
+interface ClockSegment {
+  readonly duration: bigint;
+  readonly weight: bigint;
+}
+
+function cycleClock(segments: readonly ClockSegment[], divisor: bigint): RecoveryClock {
+  const length = segments.reduce((sum, s) => sum + s.duration, 0n);
+  const integral = segments.reduce((sum, s) => sum + s.duration * s.weight, 0n);
+  return {
+    divisor,
+    cumulative(t) {
+      let rest = t % length;
+      let total = (t / length) * integral;
+      for (const s of segments) {
+        const part = rest < s.duration ? rest : s.duration;
+        total += part * s.weight;
+        rest -= part;
+        if (rest === 0n) break;
+      }
+      return total;
+    },
+    invert(target) {
+      if (integral === 0n) return null;
+      const cycles = (target - 1n) / integral;
+      let rest = target - cycles * integral;
+      let at = cycles * length;
+      for (const s of segments) {
+        const span = s.duration * s.weight;
+        if (span >= rest) return at + (rest + s.weight - 1n) / s.weight;
+        rest -= span;
+        at += s.duration;
+      }
+      return null;
+    },
+  };
+}
+
+/**
+ * The rain the world holds over its schedule: a `world.weather.set` intensity that differs from the
+ * authored segment's, in force until the next weather boundary. Absent when the sky follows the
+ * schedule. Rain channels settle whenever a hold begins or ends (on `weather.changed` and on the
+ * `weather.transitioned` that ends it), so every unsettled span lies inside one regime.
+ */
+export interface SurfaceRainHold {
+  readonly rainIntensity: number;
+  readonly until: SimTimeMs;
+}
+
+export function surfaceRainHold(
+  state: Pick<WorldState, "weather" | "environment">,
+  environment?: EnvironmentPolicy,
+): SurfaceRainHold | undefined {
+  const record = state.environment;
+  if (environment === undefined || record === undefined) return undefined;
+  const scheduled = environment.weatherSegments[record.segmentIndex]?.rainIntensity;
+  return state.weather.rainIntensity === scheduled
+    ? undefined
+    : { rainIntensity: state.weather.rainIntensity, until: record.nextWeatherBoundary };
+}
+
+/** The schedule's clock with a constant held weight before `until`; exact for spans after the hold began. */
+function heldClock(schedule: RecoveryClock, hold: SurfaceRainHold): RecoveryClock {
+  const until = hold.until as bigint;
+  const weight = BigInt(hold.rainIntensity);
+  const atUntil = schedule.cumulative(until);
+  return {
+    divisor: schedule.divisor,
+    cumulative: (t) => (t < until ? atUntil - weight * (until - t) : schedule.cumulative(t)),
+    invert(target) {
+      if (target > atUntil) return schedule.invert(target);
+      return weight === 0n ? until : until - (atUntil - target) / weight;
+    },
+  };
+}
+
+function recoveryClock(
+  recovery: Exclude<SurfaceRecovery, { readonly driver: "none" }>,
+  environment: EnvironmentPolicy | undefined,
+  hold?: SurfaceRainHold,
+): RecoveryClock {
+  if (recovery.driver === "time")
+    return cycleClock([{ duration: 1n, weight: 1n }], recovery.periodMs);
+  if (environment === undefined)
+    throw new DomainValidationError("environment", "surface driver requires an environment");
+  if (recovery.driver === "rain") {
+    const schedule = cycleClock(
+      environment.weatherSegments.map((s) => ({
+        duration: s.durationMs,
+        weight: BigInt(s.rainIntensity),
+      })),
+      recovery.periodMs * FULL_RAIN,
+    );
+    return hold === undefined ? schedule : heldClock(schedule, hold);
+  }
+  const phases = environment.phases;
+  return cycleClock(
+    phases.map((phase, i) => ({
+      duration: (phases[i + 1]?.startMs ?? environment.dayLengthMs) - phase.startMs,
+      weight: recovery.lightBands.includes(phase.lightBand) ? 1n : 0n,
+    })),
+    recovery.periodMs,
+  );
+}
+
 export function surfaceValueAt(
   channel: SurfaceChannel,
   entry: SurfaceChannelState,
   at: SimTimeMs,
+  environment?: EnvironmentPolicy,
+  hold?: SurfaceRainHold,
 ): { value: number; remainder: bigint } {
   if (channel.recovery.driver === "none" || entry.value === 0)
     return { value: entry.value, remainder: 0n };
   if (at < entry.settledAt)
     throw new DomainValidationError("at", "surface cannot settle before its last settlement");
-  const total = (at - entry.settledAt) * BigInt(channel.recovery.amount) + entry.remainder;
-  const drop = total / channel.recovery.periodMs;
+  const clock = recoveryClock(channel.recovery, environment, hold);
+  const total =
+    (clock.cumulative(at) - clock.cumulative(entry.settledAt)) * BigInt(channel.recovery.amount) +
+    entry.remainder;
+  const drop = total / clock.divisor;
   const value = BigInt(entry.value) - drop;
   if (value <= 0n) return { value: 0, remainder: 0n };
-  return { value: Number(value), remainder: total % channel.recovery.periodMs };
+  return { value: Number(value), remainder: total % clock.divisor };
 }
 
 export function nextSurfaceCrossing(
   channel: SurfaceChannel,
   entry: SurfaceChannelState,
+  environment?: EnvironmentPolicy,
+  hold?: SurfaceRainHold,
 ): SimTimeMs | null {
   const recovery = channel.recovery;
   if (recovery.driver === "none" || entry.value === 0) return null;
@@ -365,21 +548,26 @@ export function nextSurfaceCrossing(
     for (const candidate of [band.min - 1, band.max])
       if (candidate >= 0 && candidate < entry.value && candidate > target) target = candidate;
   if (target < 0) return null;
-  const numerator = BigInt(entry.value - target) * recovery.periodMs - entry.remainder;
+  const clock = recoveryClock(recovery, environment, hold);
   const amount = BigInt(recovery.amount);
-  const at = entry.settledAt + (numerator + amount - 1n) / amount;
-  return at > MAX_TIME ? null : (at as SimTimeMs);
+  const numerator = BigInt(entry.value - target) * clock.divisor - entry.remainder;
+  const weight = (numerator + amount - 1n) / amount;
+  const at = clock.invert(clock.cumulative(entry.settledAt) + weight);
+  return at === null || at > MAX_TIME ? null : (at as SimTimeMs);
 }
 
 export function dueSurfaceCrossings(
   policy: SurfacePolicy,
   state: SurfaceState,
+  environment?: EnvironmentPolicy,
+  hold?: SurfaceRainHold,
 ): { time: SimTimeMs; crossings: readonly { zoneId: string; channel: string }[] } | null {
   const found: { time: SimTimeMs; zoneId: string; channel: string }[] = [];
   for (const [i, zone] of state.zones.entries())
     for (const entry of zone.channels) {
       const channel = policy.channels.find((candidate) => candidate.id === entry.channel);
-      const at = channel === undefined ? null : nextSurfaceCrossing(channel, entry);
+      const at =
+        channel === undefined ? null : nextSurfaceCrossing(channel, entry, environment, hold);
       if (at !== null)
         found.push({ time: at, zoneId: policy.zones[i]!.id, channel: entry.channel });
     }
@@ -406,19 +594,75 @@ function zoneIndex(policy: SurfacePolicy, state: SurfaceState, zoneId: string): 
   return index;
 }
 
+/**
+ * Settles every rain-driven channel with a value at `at` under the rain in force before the weather
+ * event, for a `weather.changed` that changes the rain or a `weather.transitioned` that ends a hold.
+ */
+export function planSurfaceRainSettlement(
+  policy: SurfacePolicy,
+  state: WorldState,
+  at: SimTimeMs,
+  environment?: EnvironmentPolicy,
+): readonly SurfaceRainSettlement[] {
+  const hold = surfaceRainHold(state, environment);
+  const settled: SurfaceRainSettlement[] = [];
+  for (const [i, zone] of (state.surfaces?.zones ?? []).entries())
+    for (const entry of zone.channels) {
+      const channel = policy.channels.find((candidate) => candidate.id === entry.channel);
+      if (channel?.recovery.driver !== "rain" || entry.value === 0) continue;
+      const { value, remainder } = surfaceValueAt(channel, entry, at, environment, hold);
+      settled.push({ zoneId: policy.zones[i]!.id, channel: entry.channel, value, remainder });
+    }
+  return settled;
+}
+
+export function reduceSurfaceRainSettlement(
+  state: WorldState,
+  at: SimTimeMs,
+  settled: readonly SurfaceRainSettlement[],
+): SurfaceState {
+  const surfaces = state.surfaces;
+  if (surfaces === undefined)
+    throw new DomainValidationError("event.surfaces", "world has no surface state");
+  let zones = surfaces.zones;
+  for (const entry of settled) {
+    const index = zones.findIndex((zone) => zone.zoneId === entry.zoneId);
+    const zone = zones[index];
+    if (zone === undefined || !zone.channels.some((c) => c.channel === entry.channel))
+      throw new DomainValidationError("event.surfaces", "unknown surface zone or channel");
+    if (!Number.isSafeInteger(entry.value) || entry.value < 0 || entry.remainder < 0n)
+      throw new DomainValidationError("event.surfaces", "invalid settled surface value");
+    zones = zones.map((candidate, k) =>
+      k !== index
+        ? candidate
+        : {
+            ...candidate,
+            channels: candidate.channels.map((c) =>
+              c.channel === entry.channel
+                ? { ...c, value: entry.value, remainder: entry.remainder, settledAt: at }
+                : c,
+            ),
+          },
+    );
+  }
+  return { ...surfaces, zones };
+}
+
 export function planSurfaceCrossing(
   policy: SurfacePolicy,
   state: SurfaceState,
   zoneId: string,
   channelId: string,
   at: SimTimeMs,
+  environment?: EnvironmentPolicy,
+  hold?: SurfaceRainHold,
 ): SurfaceBandCrossedPayload {
   const zone = state.zones[zoneIndex(policy, state, zoneId)]!;
   const entry = zone.channels.find((candidate) => candidate.channel === channelId);
   if (entry === undefined)
     throw new DomainValidationError("channel", "surface channel is not on the zone");
   const channel = declared(policy, channelId);
-  const settled = surfaceValueAt(channel, entry, at);
+  const settled = surfaceValueAt(channel, entry, at, environment, hold);
   return {
     zoneId,
     channel: channelId,
@@ -439,12 +683,12 @@ export function planSurfaceInteraction(
     readonly actorId: ObjectId;
   },
   at: SimTimeMs,
+  environment?: EnvironmentPolicy,
 ): { ok: true; payload: SurfaceInteractedPayload } | Refusal {
   const surfaces = state.surfaces;
   const index = policy.zones.findIndex((zone) => zone.id === payload.zoneId);
   if (surfaces === undefined || index < 0) return refuse("payload.zoneId", "surface.zone@1");
   const zone = policy.zones[index]!;
-  const zoneState = surfaces.zones[index]!;
   const interaction = policy.interactions.find(
     (candidate) => candidate.id === payload.interactionId,
   );
@@ -473,19 +717,58 @@ export function planSurfaceInteraction(
     )
       return refuse("payload.actorId", "surface.reach@1");
   }
+  return {
+    ok: true,
+    payload: applyInteraction(
+      policy,
+      state,
+      index,
+      interaction,
+      payload.actorId,
+      payload.intensity,
+      payload.point,
+      at,
+      environment,
+    ),
+  };
+}
+
+function applyInteraction(
+  policy: SurfacePolicy,
+  state: WorldState,
+  index: number,
+  interaction: SurfaceInteraction,
+  actorId: ObjectId,
+  intensity: number,
+  point: { readonly u: number; readonly v: number },
+  at: SimTimeMs,
+  environment?: EnvironmentPolicy,
+): SurfaceInteractedPayload {
+  const surfaces = state.surfaces!;
+  const zone = policy.zones[index]!;
+  const zoneState = surfaces.zones[index]!;
   const values = new Map<string, { value: number; remainder: bigint }>();
   for (const entry of zoneState.channels)
-    values.set(entry.channel, surfaceValueAt(declared(policy, entry.channel), entry, at));
+    values.set(
+      entry.channel,
+      surfaceValueAt(
+        declared(policy, entry.channel),
+        entry,
+        at,
+        environment,
+        surfaceRainHold(state, environment),
+      ),
+    );
   const carried = new Map<string, number>();
   const touched: string[] = [];
   const held = (channel: string): number =>
     carried.get(channel) ??
-    surfaces.carried.find((c) => c.objectId === actor.objectId && c.channel === channel)?.amount ??
+    surfaces.carried.find((c) => c.objectId === actorId && c.channel === channel)?.amount ??
     0;
   for (const effect of interaction.effects) {
     const channel = declared(policy, effect.channel);
     const current = values.get(effect.channel)!;
-    const scaled = Math.max(1, Math.floor((effect.amount * payload.intensity) / MAX_INTENSITY));
+    const scaled = Math.max(1, Math.floor((effect.amount * intensity) / MAX_INTENSITY));
     if (effect.kind === "add") {
       current.value = Math.min(channel.max, current.value + scaled);
       continue;
@@ -514,28 +797,115 @@ export function planSurfaceInteraction(
   let folded: SurfaceMark | null = null;
   if (interaction.leavesMark && zone.markCapacity > 0) {
     mark = {
-      actorId: payload.actorId,
-      interactionId: payload.interactionId,
+      actorId: actorId,
+      interactionId: interaction.id,
       at,
-      intensity: payload.intensity,
-      point: { u: payload.point.u, v: payload.point.v },
+      intensity: intensity,
+      point: { u: point.u, v: point.v },
     };
     if (zoneState.marks.length >= zone.markCapacity) folded = zoneState.marks[0]!;
   }
   return {
-    ok: true,
-    payload: {
-      actorId: payload.actorId,
-      zoneId: payload.zoneId,
-      interactionId: payload.interactionId,
-      intensity: payload.intensity,
-      point: { u: payload.point.u, v: payload.point.v },
-      channels,
-      carried: touched.map((channel) => ({ channel, amount: held(channel) })),
-      mark,
-      folded,
-    },
+    actorId,
+    zoneId: zone.id,
+    interactionId: interaction.id,
+    intensity,
+    point: { u: point.u, v: point.v },
+    channels,
+    carried: touched.map((channel) => ({ channel, amount: held(channel) })),
+    mark,
+    folded,
   };
+}
+
+export interface SurfaceTrafficEntry {
+  readonly zoneId: string;
+  readonly interactionId: string;
+  readonly channels: readonly SurfaceChannelState[];
+  readonly carried: readonly { readonly channel: string; readonly amount: number }[];
+  readonly mark: SurfaceMark | null;
+  readonly folded: SurfaceMark | null;
+}
+
+const TRAFFIC_POINT = { u: 5000, v: 5000 };
+
+/** What an actor entering `regionId` does to the region's traffic zones, in declaration order. */
+export function planSurfaceTraffic(
+  policy: SurfacePolicy,
+  state: WorldState,
+  actorId: ObjectId,
+  regionId: string,
+  at: SimTimeMs,
+  environment?: EnvironmentPolicy,
+): readonly SurfaceTrafficEntry[] {
+  const entries: SurfaceTrafficEntry[] = [];
+  let current = state;
+  for (const [index, zone] of policy.zones.entries()) {
+    if (
+      zone.traffic === undefined ||
+      zone.host.kind !== "region" ||
+      zone.host.regionId !== regionId
+    )
+      continue;
+    const interaction = policy.interactions.find((candidate) => candidate.id === zone.traffic);
+    if (interaction === undefined || current.surfaces === undefined) continue;
+    const planned = applyInteraction(
+      policy,
+      current,
+      index,
+      interaction,
+      actorId,
+      MAX_INTENSITY,
+      TRAFFIC_POINT,
+      at,
+      environment,
+    );
+    entries.push({
+      zoneId: planned.zoneId,
+      interactionId: planned.interactionId,
+      channels: planned.channels,
+      carried: planned.carried,
+      mark: planned.mark,
+      folded: planned.folded,
+    });
+    current = {
+      ...current,
+      surfaces: reduceSurfaceEvent(current, {
+        type: "surface.interacted",
+        simulationTime: at,
+        payload: planned,
+      }),
+    };
+  }
+  return entries;
+}
+
+export function reduceSurfaceTraffic(
+  state: WorldState,
+  event: {
+    readonly simulationTime: SimTimeMs;
+    readonly payload: {
+      readonly objectId: ObjectId;
+      readonly surfaces?: readonly SurfaceTrafficEntry[];
+    };
+  },
+): SurfaceState {
+  let current = state;
+  for (const entry of event.payload.surfaces ?? [])
+    current = {
+      ...current,
+      surfaces: reduceSurfaceEvent(current, {
+        type: "surface.interacted",
+        simulationTime: event.simulationTime,
+        payload: {
+          ...entry,
+          actorId: event.payload.objectId,
+          intensity: MAX_INTENSITY,
+          point: TRAFFIC_POINT,
+        },
+      }),
+    };
+  return current.surfaces!;
 }
 
 export function planSurfaceRepair(
@@ -543,13 +913,16 @@ export function planSurfaceRepair(
   state: WorldState,
   payload: Pick<SurfaceRepairPayload, "zoneId" | "reason">,
   at: SimTimeMs,
+  environment?: EnvironmentPolicy,
 ): { ok: true; payload: SurfaceRepairedPayload } | Refusal {
   const index = policy.zones.findIndex((zone) => zone.id === payload.zoneId);
   const zoneState = state.surfaces?.zones[index];
   if (zoneState === undefined) return refuse("payload.zoneId", "surface.zone@1");
   const removed: { channel: string; amount: number }[] = [];
   for (const entry of zoneState.channels) {
-    const settled = surfaceValueAt(declared(policy, entry.channel), entry, at);
+    const channel = declared(policy, entry.channel);
+    const hold = surfaceRainHold(state, environment);
+    const settled = surfaceValueAt(channel, entry, at, environment, hold);
     if (settled.value > 0) removed.push({ channel: entry.channel, amount: settled.value });
   }
   return { ok: true, payload: { zoneId: payload.zoneId, reason: payload.reason, removed } };
@@ -578,6 +951,11 @@ export function reduceSurfaceEvent(
   const surfaces = state.surfaces;
   if (surfaces === undefined)
     throw new DomainValidationError("event", "the world declares no surfaces");
+  if (event.type === "surface.carried-drained")
+    return {
+      zones: surfaces.zones,
+      carried: surfaces.carried.filter((entry) => entry.objectId !== event.payload.actorId),
+    };
   const index = surfaces.zones.findIndex((zone) => zone.zoneId === event.payload.zoneId);
   const zone = surfaces.zones[index];
   if (zone === undefined) throw new DomainValidationError("event.zoneId", "unknown surface zone");
@@ -670,11 +1048,17 @@ export function surfaceDisagreement(
         channelState.remainder !== 0n &&
         (channel.recovery.driver === "none" ||
           channelState.value === 0 ||
-          channelState.remainder >= channel.recovery.periodMs)
+          channelState.remainder >=
+            channel.recovery.periodMs * (channel.recovery.driver === "rain" ? FULL_RAIN : 1n))
       )
         return `${at}.remainder`;
       if (channelState.settledAt > state.simulationTime) return `${at}.settledAt`;
-      const crossing = nextSurfaceCrossing(channel, channelState);
+      const crossing = nextSurfaceCrossing(
+        channel,
+        channelState,
+        policy.environment,
+        surfaceRainHold(state, policy.environment),
+      );
       if (crossing !== null && crossing <= state.simulationTime) return at;
     }
     if (entry.marks.length > zone.markCapacity) return `${path}.marks`;
@@ -689,7 +1073,8 @@ export function surfaceDisagreement(
     previous = entry;
     if (!surfaces.channels.some((c) => c.id === entry.channel && c.carried))
       return `${path}.channel`;
-    if (entry.amount <= 0 || !state.entities.some((e) => e.objectId === entry.objectId))
+    const holder = state.entities.find((e) => e.objectId === entry.objectId);
+    if (entry.amount <= 0 || holder === undefined || holder.lifecycle?.status === "dead")
       return path;
   }
   return undefined;

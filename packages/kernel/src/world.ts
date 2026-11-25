@@ -51,22 +51,28 @@ import {
   pendingPortalSteps,
   planSurfaceCrossing,
   planSurfaceInteraction,
+  planSurfaceRainSettlement,
   planSurfaceRepair,
+  planSurfaceTraffic,
   plantStageIndex,
   portalIsOpen,
   positionAt,
   RESOURCE_KINDS,
   type RoutineCandidate,
+  reduceSurfaceTraffic,
   reduceWorldEvent,
   regionsContaining,
   removableLifecycleDead,
   type SurfaceInteractPayload,
+  type SurfaceRainHold,
+  type SurfaceRainSettlement,
   type SurfaceRepairPayload,
   sameCoordinates,
   scriptedCognitionDisagreement,
   shelterMatches,
   shelterReflexThreshold,
   surfaceDisagreement,
+  surfaceRainHold,
   validateNamedRandomState,
   validateWorldBehaviorPack,
   validateWorldState,
@@ -276,6 +282,7 @@ const WORLD_TIME_TYPES: readonly string[] = Object.freeze([
   "resource.appeared",
   "resource.weather-integrated",
   "surface.band-crossed",
+  "surface.carried-drained",
   "process.command-attempted",
   "resource.transferred",
   "growth.integrated",
@@ -1154,7 +1161,33 @@ function runWorld(
   function current(): WorldState {
     return context.workingState();
   }
-  function emit(event: WorldEvent, reconcileShelter = true): void {
+  /** The rain the world holds over its schedule, which rain-driven surfaces heal under. */
+  function hold(): SurfaceRainHold | undefined {
+    return surfaceRainHold(current(), policy.environment);
+  }
+  /** Rain-driven surfaces settled where the rain in force changes; nothing when none are. */
+  function rainSettlement(
+    at: SimTimeMs,
+    changes: boolean,
+  ): { surfaces?: readonly SurfaceRainSettlement[] } {
+    if (!changes || policy.surfaces === undefined) return {};
+    const surfaces = planSurfaceRainSettlement(policy.surfaces, current(), at, policy.environment);
+    return surfaces.length === 0 ? {} : { surfaces };
+  }
+  function withTraffic(event: WorldEvent): WorldEvent {
+    if (event.type !== "movement.region-entered" || policy.surfaces === undefined) return event;
+    const surfaces = planSurfaceTraffic(
+      policy.surfaces,
+      current(),
+      event.payload.objectId,
+      event.payload.regionId,
+      event.simulationTime,
+      policy.environment,
+    );
+    return surfaces.length === 0 ? event : { ...event, payload: { ...event.payload, surfaces } };
+  }
+  function emit(planned: WorldEvent, reconcileShelter = true): void {
+    const event = withTraffic(planned);
     if (
       context.eventCount() >= payload.maxEvents ||
       current().revision > BigInt(Number.MAX_SAFE_INTEGER)
@@ -1268,7 +1301,9 @@ function runWorld(
     const surfaces = policy.surfaces;
     const state = current().surfaces;
     const due =
-      surfaces === undefined || state === undefined ? null : dueSurfaceCrossings(surfaces, state);
+      surfaces === undefined || state === undefined
+        ? null
+        : dueSurfaceCrossings(surfaces, state, policy.environment, hold());
     if (surfaces === undefined || state === undefined || due === null || due.time !== at)
       return true;
     if (context.eventCount() + due.crossings.length > payload.maxEvents) {
@@ -1276,7 +1311,7 @@ function runWorld(
       return false;
     }
     const planned = due.crossings.map((c) =>
-      planSurfaceCrossing(surfaces, state, c.zoneId, c.channel, at),
+      planSurfaceCrossing(surfaces, state, c.zoneId, c.channel, at, policy.environment, hold()),
     );
     for (const crossing of planned) emit(event("surface.band-crossed", at, crossing));
     return true;
@@ -1990,12 +2025,41 @@ function runWorld(
       if (action.kind !== "died") continue;
       if (kindOfActor(action.objectId)?.successorRule != null) total += 1;
       const movement = objectsOf(current(), action.objectId)?.movement;
-      if (movement !== undefined && movement.status === "active")
-        // Terminal interruptions do not reconcile shelter arrivals before the following death.
-        total += pendingCrossings(movement, at).length + 1;
+      const crossings =
+        movement !== undefined && movement.status === "active"
+          ? pendingCrossings(movement, at)
+          : [];
+      // Terminal interruptions do not reconcile shelter arrivals before the following death.
+      if (movement !== undefined && movement.status === "active") total += crossings.length + 1;
+      if (carriesAtDeath(action.objectId, crossings)) total += 1;
     }
     return total;
   };
+  /** Whether a dying actor still carries matter once its pending crossings' traffic applies. */
+  function carriesAtDeath(objectId: string, crossings: readonly CrossingRecord[]): boolean {
+    let state = current();
+    if (policy.surfaces !== undefined)
+      for (const crossing of crossings) {
+        if (crossing.kind !== "entered") continue;
+        const surfaces = planSurfaceTraffic(
+          policy.surfaces,
+          state,
+          objectId as ObjectId,
+          crossing.regionId,
+          crossing.time as SimTimeMs,
+          policy.environment,
+        );
+        if (surfaces.length > 0)
+          state = {
+            ...state,
+            surfaces: reduceSurfaceTraffic(state, {
+              simulationTime: crossing.time as SimTimeMs,
+              payload: { objectId: objectId as ObjectId, surfaces },
+            }),
+          };
+      }
+    return (state.surfaces?.carried ?? []).some((row) => row.objectId === objectId);
+  }
   let lifecycleChanged = false;
   /** Emits one environment time group; returns false, emitting nothing, when it does not fit. */
   function emitGroup(group: EnvironmentGroup): boolean {
@@ -2127,8 +2191,18 @@ function runWorld(
           arrivalEventCount(plan);
       }
     }
+    // A crossing due as a held rain ends is journaled under that rain, before the weather settles it.
+    const heldDue =
+      group.weather &&
+      hold() !== undefined &&
+      policy.surfaces !== undefined &&
+      current().surfaces !== undefined
+        ? dueSurfaceCrossings(policy.surfaces, current().surfaces!, policy.environment, hold())
+        : null;
+    const heldCrossings = heldDue?.time === at ? heldDue.crossings : [];
     const size =
       processesAt(at).length * 2 +
+      heldCrossings.length +
       movementSize +
       (group.phase ? 1 : 0) +
       (group.weather ? 1 : 0) +
@@ -2163,6 +2237,19 @@ function runWorld(
       const segment = environment.weatherSegments[derived.segmentIndex] as NonNullable<
         (typeof environment.weatherSegments)[number]
       >;
+      const surfacesNow = current().surfaces;
+      const planned = heldCrossings.map((c) =>
+        planSurfaceCrossing(
+          policy.surfaces!,
+          surfacesNow!,
+          c.zoneId,
+          c.channel,
+          at,
+          policy.environment,
+          hold(),
+        ),
+      );
+      for (const crossing of planned) emit(event("surface.band-crossed", at, crossing));
       emit(
         event("weather.transitioned", at, {
           segmentIndex: derived.segmentIndex,
@@ -2170,6 +2257,7 @@ function runWorld(
           temperatureBand: derived.temperatureBand,
           nextWeatherBoundary: derived.nextWeatherBoundary,
           rainChange: classifyRainChange(current().weather.rainIntensity, segment.rainIntensity),
+          ...rainSettlement(at, hold() !== undefined),
         }),
       );
     }
@@ -2336,6 +2424,17 @@ function runWorld(
               health: entry.health,
             }),
           );
+          const carried = (current().surfaces?.carried ?? []).filter(
+            (row) => row.objectId === action.objectId,
+          );
+          if (carried.length > 0)
+            emit(
+              event("surface.carried-drained", at, {
+                actorId: action.objectId,
+                removed: carried.map(({ channel, amount }) => ({ channel, amount })),
+                cause: "died",
+              }),
+            );
           const queued = decisionsOf(schedules).find(
             (candidate) => candidate.payload.objectId === action.objectId,
           );
@@ -2504,7 +2603,7 @@ function runWorld(
       const surfaceDue =
         policy.surfaces === undefined || current().surfaces === undefined
           ? null
-          : dueSurfaceCrossings(policy.surfaces, current().surfaces!);
+          : dueSurfaceCrossings(policy.surfaces, current().surfaces!, policy.environment, hold());
       const surfaceTime =
         surfaceDue !== null && surfaceDue.time <= target ? surfaceDue.time : undefined;
       // Surface crossings run after the instant's physical causes and before its processes.
@@ -2919,6 +3018,10 @@ function runWorld(
     emit(
       event("weather.changed", current().simulationTime, {
         rainIntensity: payload.rainIntensity as number,
+        ...rainSettlement(
+          current().simulationTime,
+          payload.rainIntensity !== current().weather.rainIntensity,
+        ),
       }),
     );
     for (const item of decisionsOf(schedules)) reschedule(item, current().simulationTime);
@@ -4160,6 +4263,7 @@ function runContainmentCommand(
         state,
         { ...p, actorId: p.actorId as ObjectId },
         state.simulationTime,
+        input.pack.pack.policy.environment,
       );
       if (!planned.ok) throw new RangeError("surface interaction was not validated");
       emit({ type: "surface.interacted", payload: planned.payload });
@@ -4171,6 +4275,7 @@ function runContainmentCommand(
         state,
         payload as SurfaceRepairPayload,
         state.simulationTime,
+        input.pack.pack.policy.environment,
       );
       if (!planned.ok) throw new RangeError("surface repair was not validated");
       emit({ type: "surface.repaired", payload: planned.payload });
@@ -4644,6 +4749,7 @@ function surfaceRefusal(
       state,
       payload as SurfaceRepairPayload,
       state.simulationTime,
+      policy.environment,
     );
     return planned.ok ? undefined : planned;
   }
@@ -4653,6 +4759,7 @@ function surfaceRefusal(
     state,
     { ...p, actorId: p.actorId as ObjectId },
     state.simulationTime,
+    policy.environment,
   );
   if (!planned.ok && planned.check !== "surface.reach@1") return planned;
   const actor = state.entities.find((entry) => entry.objectId === p.actorId);
@@ -4665,10 +4772,16 @@ function surfaceJournalDisagreement(
   initial: WorldState,
   events: readonly WorldSemanticEvent[],
 ): string | undefined {
-  const first = events.findIndex((event) => event.type.startsWith("surface."));
-  if (first < 0) return undefined;
   const surfaces = activePolicy?.surfaces;
-  if (surfaces === undefined) return `events[${first}]`;
+  const first = events.findIndex(
+    (event) =>
+      event.type.startsWith("surface.") ||
+      ((event.type === "movement.region-entered" ||
+        event.type === "weather.changed" ||
+        event.type === "weather.transitioned") &&
+        event.payload.surfaces !== undefined),
+  );
+  if (surfaces === undefined) return first < 0 ? undefined : `events[${first}]`;
   let state = initial;
   for (const [index, event] of events.entries()) {
     try {
@@ -4678,6 +4791,7 @@ function surfaceJournalDisagreement(
           state,
           event.payload,
           event.simulationTime,
+          activePolicy?.environment,
         );
         if (
           !planned.ok ||
@@ -4685,21 +4799,104 @@ function surfaceJournalDisagreement(
         )
           return `events[${index}]`;
       } else if (event.type === "surface.repaired") {
-        const planned = planSurfaceRepair(surfaces, state, event.payload, event.simulationTime);
+        const planned = planSurfaceRepair(
+          surfaces,
+          state,
+          event.payload,
+          event.simulationTime,
+          activePolicy?.environment,
+        );
         if (
           !planned.ok ||
           canonicalSerialize(planned.payload) !== canonicalSerialize(event.payload)
         )
           return `events[${index}]`;
+      } else if (event.type === "surface.carried-drained") {
+        const held = (state.surfaces?.carried ?? [])
+          .filter((row) => row.objectId === event.payload.actorId)
+          .map(({ channel, amount }) => ({ channel, amount }));
+        // The drain follows its actor's death at the same instant (a shelter change may sit between).
+        const died = events
+          .slice(0, index)
+          .some(
+            (prior) =>
+              prior.type === "lifecycle.died" &&
+              prior.simulationTime === event.simulationTime &&
+              prior.payload.objectId === event.payload.actorId,
+          );
+        if (
+          held.length === 0 ||
+          event.payload.cause !== "died" ||
+          canonicalSerialize(held) !== canonicalSerialize(event.payload.removed) ||
+          !died
+        )
+          return `events[${index}]`;
+      } else if (event.type === "lifecycle.died") {
+        const drained = events
+          .slice(index + 1)
+          .some(
+            (later) =>
+              later.type === "surface.carried-drained" &&
+              later.simulationTime === event.simulationTime &&
+              later.payload.actorId === event.payload.objectId,
+          );
+        if (
+          state.surfaces?.carried.some((row) => row.objectId === event.payload.objectId) === true &&
+          !drained
+        )
+          return `events[${index}]`;
+      } else if (event.type === "weather.changed" || event.type === "weather.transitioned") {
+        const environment = activePolicy?.environment;
+        const changes =
+          event.type === "weather.changed"
+            ? event.payload.rainIntensity !== state.weather.rainIntensity
+            : surfaceRainHold(state, environment) !== undefined;
+        const planned = changes
+          ? planSurfaceRainSettlement(surfaces, state, event.simulationTime, environment)
+          : [];
+        if (
+          canonicalSerialize(planned.length === 0 ? null : planned) !==
+          canonicalSerialize(event.payload.surfaces ?? null)
+        )
+          return `events[${index}]`;
+      } else if (event.type === "movement.region-entered") {
+        const planned = planSurfaceTraffic(
+          surfaces,
+          state,
+          event.payload.objectId,
+          event.payload.regionId,
+          event.simulationTime,
+          activePolicy?.environment,
+        );
+        if (
+          canonicalSerialize(planned.length === 0 ? null : planned) !==
+          canonicalSerialize(event.payload.surfaces ?? null)
+        )
+          return `events[${index}]`;
       } else if (event.type === "surface.band-crossed") {
         const { zoneId, channel } = event.payload;
         const due =
-          state.surfaces === undefined ? null : dueSurfaceCrossings(surfaces, state.surfaces);
+          state.surfaces === undefined
+            ? null
+            : dueSurfaceCrossings(
+                surfaces,
+                state.surfaces,
+                activePolicy?.environment,
+                surfaceRainHold(state, activePolicy?.environment),
+              );
         if (
           due?.time !== event.simulationTime ||
           !due.crossings.some((c) => c.zoneId === zoneId && c.channel === channel) ||
           canonicalSerialize(
-            planSurfaceCrossing(surfaces, state.surfaces!, zoneId, channel, event.simulationTime),
+            planSurfaceCrossing(
+              surfaces,
+              state.surfaces!,
+              zoneId,
+              channel,
+              event.simulationTime,
+              activePolicy?.environment,
+              surfaceRainHold(state, activePolicy?.environment),
+            ),
           ) !== canonicalSerialize(event.payload)
         )
           return `events[${index}]`;
@@ -4911,6 +5108,7 @@ function registerContainmentChecks(
                 "exposure.threshold-crossed",
                 "resource.weather-integrated",
                 "surface.band-crossed",
+                "surface.carried-drained",
                 "resource.spoiled",
                 "growth.stage-changed",
                 "growth.integrated",

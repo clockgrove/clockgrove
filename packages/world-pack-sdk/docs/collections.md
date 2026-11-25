@@ -141,7 +141,9 @@ A behavior policy may add `surfaces`: named surface zones on objects or regions,
 on them (wear, mud, wet…) with named, overlapping bands, the interactions that change them and a
 declared budget. It is validated by the domain like every other section, so a malformed entry is
 `INVALID_POLICY` at `manifest.policies[i]#policy.surfaces...`; bigints (`recovery.periodMs`) are
-written as `{"$bigint": "n"}`.
+written as `{"$bigint": "n"}`. A channel heals by `time`, by `rain` or by `growth` (the last two
+need the policy's `environment`), and a region zone may name a `traffic` interaction that every
+entering object applies, wearing a path or tracking mud.
 
 ```json
 {

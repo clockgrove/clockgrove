@@ -33,14 +33,29 @@ Bands may overlap and need not cover the range: a value's band set (`surfaceBand
 containing it, in declaration order, and may be empty. `carried: true` marks matter that moves
 (mud and the like): it cannot be raised by `add`, only moved by `pickup` and `deposit`.
 
-**Recovery** is how a channel heals or washes away on its own: `{driver: "none"}` or
-`{driver: "time", amount, periodMs}`, falling by `amount` (a positive safe integer) every
-`periodMs` (a positive bigint of at most 2^53 milliseconds). The speed is pack data: a pack
-chooses whether a scratch weathers in hours or in weeks.
+**Recovery** is how a channel heals or washes away on its own, tied to a modelled driver:
+
+| Driver | Record | Heals |
+| --- | --- | --- |
+| `none` | `{driver}` | never |
+| `time` | `{driver, amount, periodMs}` | by `amount` every `periodMs` |
+| `rain` | `{driver, amount, periodMs}` | by `amount` every `periodMs` of rain at full intensity, scaled by the weather segment's `rainIntensity` (basis points); `periodMs` at most 900,719,925,474 |
+| `growth` | `{driver, amount, periodMs, lightBands}` | by `amount` every `periodMs` spent in a day phase whose light band is one of `lightBands` (1–64 unique names), not at all otherwise |
+
+`amount` is a positive safe integer and `periodMs` a positive bigint of at most 2^53 milliseconds
+unless stated. A `rain` or `growth` channel needs the policy's `environment`
+([environment](environment.md)); without one the world policy is refused at
+`policy.surfaces.channels[i].recovery.driver`. Each `growth` light band must be the `lightBand` of
+one of the environment's phases, else the policy is refused at
+`policy.surfaces.channels[i].recovery.lightBands[k]`. The speed is pack data: a pack chooses whether a
+scratch weathers in hours or in weeks.
 
 **Zones.** A zone is hosted on an object (`{kind: "object", objectId}`) or a spatial region
 (`{kind: "region", regionId}`). It lists 1–16 distinct declared channels, each with an `initial`
-value in `[0, channel.max]`, and a `markCapacity` from 0 to 32.
+value in `[0, channel.max]`, and a `markCapacity` from 0 to 32. A zone hosted on a region may
+also name `traffic`: a declared interaction, all of whose effects are on the zone's own channels,
+applied to every object that enters the region (see [Wear by movement](#wear-by-movement)). A zone
+without it encodes as before.
 
 **Interactions.** `id` is unique; `effects` holds 1–8 `{channel, kind, amount}` with `amount`
 1–1,000,000. `kind` is `add` for an ordinary channel, and `pickup` or `deposit` for a carried one;
@@ -74,18 +89,41 @@ nothing carried. The simulator's genesis seeds it whenever the policy declares s
 
 ## Closed-form healing
 
-`surfaceValueAt(channel, entry, at)` evaluates a channel lazily:
-`total = (at - settledAt) * amount + remainder`, the value falls by `total / periodMs` (never below
-zero) and the new remainder is `total % periodMs` (zero once the value is zero). Settling at any
-intermediate instant and continuing gives the same value and remainder as one evaluation, so the
-result does not depend on how time was advanced.
+Each driver is a clock: a cumulative weight `F(t)` over `[0, t)` and a divisor `D`. For `time`,
+`F(t) = t` and `D = periodMs`. For `rain`, `F` integrates `rainIntensity` over the environment's
+weather segments and `D = periodMs × 10000`; for `growth`, `F` counts the milliseconds spent in a
+listed light band over the environment's day phases and `D = periodMs`. Both environment cycles
+are anchored at time 0 and repeat, so `F` is closed-form (whole cycles plus a walk of at most 64
+segments), and no phase event needs to settle a channel.
 
-`nextSurfaceCrossing(channel, entry)` is the first instant at which the channel's band set
-changes as it heals (the value drops below a band's `min` or to a band's `max`), or `null` when
-it never will. `dueSurfaceCrossings(policy, state)` returns the earliest such instant over every
-zone and the zone channels crossing then. `planSurfaceCrossing` settles one channel at that
-instant and returns the `surface.band-crossed` payload. Only those crossings are journaled while
-time passes; there are no per-tick events.
+**Held rain.** Rain heals under the rain the world models, `state.weather.rainIntensity`, which a
+`world.weather.set` override holds until the next weather boundary. `surfaceRainHold(state,
+environment?)` returns `{rainIntensity, until}` while that intensity differs from the current
+segment's authored one (`until` is the record's `nextWeatherBoundary`), else nothing. Under a hold,
+`F` has slope `rainIntensity` before `until` and follows the schedule from `until`. So that this is
+exact, every rain channel with a value settles where a hold begins or ends: a `weather.changed` that
+changes the rain, and the `weather.transitioned` that ends a hold, carry an optional `surfaces` field
+of `{zoneId, channel, value, remainder}` rows settled at the event under the rain in force before it
+(`planSurfaceRainSettlement`); `reduceWorldEvent` applies them through
+`reduceSurfaceRainSettlement`, setting `settledAt` to the event time. Without a rain channel with a
+value the field is absent and the event encodes as before. Exposure and water collection read the
+same held intensity, so surfaces, wetness and collectors agree in one world.
+
+`surfaceValueAt(channel, entry, at, environment?, hold?)` evaluates a channel lazily:
+`total = (F(at) - F(settledAt)) × amount + remainder`, the value falls by `total / D` (never below
+zero) and the new remainder is `total % D` (zero once the value is zero). Settling at any
+intermediate instant and continuing gives the same value and remainder as one evaluation, so the
+result does not depend on how time was advanced. A `rain` or `growth` channel evaluated without
+an environment throws.
+
+`nextSurfaceCrossing(channel, entry, environment?, hold?)` is the first instant at which the channel's
+band set changes as it heals (the value drops below a band's `min` or to a band's `max`): the
+smallest `t` at which `F(t)` reaches the weight that drop needs, or `null` when it never will (no
+band left to cross, or a cycle with no rain or no listed light). `dueSurfaceCrossings(policy,
+state, environment?, hold?)` returns the earliest such instant over every zone and the zone channels
+crossing then. `planSurfaceCrossing` settles one channel at that instant and returns the
+`surface.band-crossed` payload. Only those crossings are journaled while time passes; there are
+no per-tick events. The planners below take the same optional trailing `environment`.
 
 ## Interactions, marks and carried matter
 
@@ -102,8 +140,8 @@ scaled by `max(1, floor(amount * intensity / 10000))`:
   carries and by the room below `max`.
 
 Carried matter is therefore only ever moved, never copied: the zone and the actor's totals sum to
-the same before and after. Its drains are the channel's declared recovery and the owner's repair,
-both journaled.
+the same before and after. Its drains are the channel's declared recovery, the owner's repair and
+the death of the actor carrying it (`surface.carried-drained`), each journaled.
 
 When the interaction `leavesMark` and the zone's `markCapacity` is positive, a mark recording who,
 when, where and how hard is pushed onto the ring. When the ring is full, its oldest mark leaves it
@@ -113,6 +151,21 @@ when, where and how hard is pushed onto the ring. When the ring is full, its old
 each non-zero channel it removes; the event resets every channel of the zone to zero and clears its
 marks.
 
+## Wear by movement
+
+`planSurfaceTraffic(policy, state, actorId, regionId, at, environment?)` returns what an object
+entering `regionId` does to the region's `traffic` zones, in declaration order: for each, a
+`SurfaceTrafficEntry` `{zoneId, interactionId, channels, carried, mark, folded}` with the same
+meaning as in `surface.interacted`. The interaction applies at full intensity (10000), with no
+reach check (entering is reach) and a mark, when it leaves one, at the zone's centre
+`{u: 5000, v: 5000}`. A later zone on the same region sees the carried amounts an earlier one
+left, so an actor that picks mud up in a yard and walks onto a porch deposits it there.
+
+These entries ride on the existing `movement.region-entered` event as its optional `surfaces`
+field, present only when non-empty: wear costs no event of its own, never one per step, and an
+entry event without the field encodes as before. `reduceWorldEvent` applies them after the
+movement reducer through `reduceSurfaceTraffic`.
+
 ## Events and reducers
 
 | Event (version 1) | Payload |
@@ -120,13 +173,14 @@ marks.
 | `surface.interacted` | `{actorId, zoneId, interactionId, intensity, point, channels, carried, mark, folded}`: the zone's settled channels after the effects, the acting actor's new amount for each carried channel touched (0 removes the row), the pushed mark or `null`, the folded mark or `null` |
 | `surface.band-crossed` | `{zoneId, channel, value, remainder, bands, previousBands}` |
 | `surface.repaired` | `{zoneId, reason, removed: [{channel, amount}]}` |
+| `surface.carried-drained` | `{actorId, removed: [{channel, amount}], cause: "died"}`: every carried row the actor held, in state order; the reducer removes them |
 
-`reduceSurfaceEvent` applies them; `reduceWorldEvent` routes the three types to it. A
+`reduceSurfaceEvent` applies them; `reduceWorldEvent` routes the four types to it. A
 `surface.interacted` event must list the zone's channels in order and may only fold the ring's
 oldest mark. `surfaceDisagreement(policy, state)` reports the first path at which a state does not
 match its policy: zone or channel order, a value above `max`, a remainder that cannot exist, a
 settlement or mark in the future, marks out of order or over capacity, a crossing already due, or a
-carried row that is unsorted, on an uncarried channel or held by an unknown actor.
+carried row that is unsorted, on an uncarried channel, or held by an unknown or dead actor.
 
 ## Commands
 

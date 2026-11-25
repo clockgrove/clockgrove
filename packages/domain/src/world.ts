@@ -41,6 +41,7 @@ import {
   type EnvironmentEventData,
   type EnvironmentPolicy,
   type EnvironmentState,
+  EnvironmentValidationError,
   validateEnvironmentPolicy,
   validateEnvironmentState,
 } from "./environment/environment.js";
@@ -80,8 +81,11 @@ import {
 } from "./spatial.js";
 import {
   reduceSurfaceEvent,
+  reduceSurfaceRainSettlement,
+  reduceSurfaceTraffic,
   type SurfaceEventData,
   type SurfacePolicy,
+  type SurfaceRainSettlement,
   type SurfaceState,
   validateSurfacePolicy,
   validateSurfaceState,
@@ -260,7 +264,14 @@ export type WorldEvent = WorldEventScope &
   (
     | (Readonly<{ schemaVersion: 1 }> &
         (
-          | Readonly<{ type: "weather.changed"; payload: Readonly<{ rainIntensity: number }> }>
+          | Readonly<{
+              type: "weather.changed";
+              payload: Readonly<{
+                rainIntensity: number;
+                /** Rain-driven surfaces settled as the rain changes; present only when non-empty. */
+                surfaces?: readonly SurfaceRainSettlement[];
+              }>;
+            }>
           | Readonly<{
               type: "needs.changed";
               payload: Readonly<{ objectId: ObjectId }> & WorldNeeds;
@@ -362,6 +373,26 @@ export function validateWorldBehaviorPack(pack: WorldBehaviorPack): void {
   if (Object.hasOwn(policy, "processes")) validateWorldProcesses(policy.processes);
   if (Object.hasOwn(policy, "surfaces")) validateSurfacePolicy(policy.surfaces);
   if (Object.hasOwn(policy, "environment")) validateEnvironmentPolicy(policy.environment);
+  if (Object.hasOwn(policy, "surfaces")) {
+    const lightBands = new Set(policy.environment?.phases.map((phase) => phase.lightBand));
+    policy.surfaces!.channels.forEach((channel, i) => {
+      const recovery = channel.recovery;
+      if (recovery.driver !== "rain" && recovery.driver !== "growth") return;
+      if (policy.environment === undefined)
+        throw new EnvironmentValidationError(
+          `policy.surfaces.channels[${i}].recovery.driver`,
+          "surface driver requires an environment",
+        );
+      if (recovery.driver === "growth")
+        recovery.lightBands.forEach((band, k) => {
+          if (!lightBands.has(band))
+            throw new EnvironmentValidationError(
+              `policy.surfaces.channels[${i}].recovery.lightBands[${k}]`,
+              "growth light band is not a phase light band of the environment",
+            );
+        });
+    });
+  }
   if (Object.hasOwn(policy, "ecology")) validateEcologyPolicy(policy.ecology, policy.environment);
   if (Object.hasOwn(policy, "wellbeing"))
     validateWellbeingPolicy(policy.wellbeing, policy.environment);
@@ -558,6 +589,7 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
       requireEntity(state, event.payload.actorId);
       return createWorldState({ ...advanced, surfaces: reduceSurfaceEvent(state, event) });
     case "surface.band-crossed":
+    case "surface.carried-drained":
     case "surface.repaired":
       return createWorldState({ ...advanced, surfaces: reduceSurfaceEvent(state, event) });
     case "boundary.departed":
@@ -623,6 +655,15 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
       return createWorldState({
         ...advanced,
         weather: { rainIntensity: event.payload.rainIntensity },
+        ...(event.payload.surfaces === undefined
+          ? {}
+          : {
+              surfaces: reduceSurfaceRainSettlement(
+                state,
+                event.simulationTime,
+                event.payload.surfaces,
+              ),
+            }),
       });
     case "needs.changed": {
       const entity = requireEntity(state, event.payload.objectId);
@@ -976,8 +1017,17 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
         },
       });
     }
+    case "movement.region-entered": {
+      const entities = reduceMovementEvent(state, event);
+      return createWorldState({
+        ...advanced,
+        entities,
+        ...(event.payload.surfaces === undefined
+          ? {}
+          : { surfaces: reduceSurfaceTraffic({ ...state, entities }, event) }),
+      });
+    }
     case "movement.started":
-    case "movement.region-entered":
     case "movement.region-exited":
     case "movement.region-remained":
     case "movement.portal-crossed":
@@ -1035,6 +1085,15 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
         ...advanced,
         weather: { rainIntensity: event.payload.rainIntensity },
         environment: next,
+        ...(event.payload.surfaces === undefined
+          ? {}
+          : {
+              surfaces: reduceSurfaceRainSettlement(
+                state,
+                event.simulationTime,
+                event.payload.surfaces,
+              ),
+            }),
       });
     }
     case "exposure.threshold-crossed": {

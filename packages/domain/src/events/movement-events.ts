@@ -1,6 +1,7 @@
 import type { ObjectId } from "@clockgrove/contracts";
 import type { MovementRecord } from "../spatial/movement.js";
 import type { FixedPoint } from "../spatial.js";
+import type { SurfaceTrafficEntry } from "../surface.js";
 
 /** Semantic movement events. Every event's `simulationTime` is the exact time it describes. */
 export type MovementEventData =
@@ -15,6 +16,8 @@ export type MovementEventData =
         movementId: string;
         regionId: string;
         regionVersion: number;
+        /** Wear and tracked matter applied by entering; present only when non-empty. */
+        surfaces?: readonly SurfaceTrafficEntry[];
       }>;
     }>
   | Readonly<{

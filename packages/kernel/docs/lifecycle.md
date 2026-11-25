@@ -73,7 +73,8 @@ refusal (never a throw) for a living actor, an unknown id or a `null` rule. A su
 
 **`maxEvents` group sizes.** A lifecycle time group is atomic: its size is one event per lifecycle action, plus
 one per death for the successor intent, plus, for an actor with an active movement, its pending crossings and one
-`movement.interrupted`. A group that does not fit is not emitted and the stopped call rolls back the `lifecycle`
+`movement.interrupted`, plus one `surface.carried-drained` for a dying actor that holds carried matter once those
+crossings' traffic has applied (see `surfaces.md`). A group that does not fit is not emitted and the stopped call rolls back the `lifecycle`
 stream with it; an empty budget that cannot fit one group is refused at `payload.maxEvents`. Chained bounded calls
 emit each `lifecycle.born` exactly once and equal one unbounded call.
 

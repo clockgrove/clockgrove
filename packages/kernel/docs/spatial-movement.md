@@ -10,7 +10,9 @@ fixed point (units per second, coordinates) or bigint simulation milliseconds; f
 `movement.region-entered`, `movement.region-exited`, `movement.region-remained`,
 `movement.portal-crossed`, `movement.interrupted`, `movement.replanned`, `movement.completed`) each
 have exactly one reducer; movement state is the `entity.movement` record, an optional field so
-existing state hashes are unchanged.
+existing state hashes are unchanged. A `movement.region-entered` into a region that hosts surface
+`traffic` zones carries an optional `surfaces` field with the wear and tracked matter the entry
+applies ([surfaces](surfaces.md#wear-by-movement)); without such zones the event is unchanged.
 
 Regions are circles, axis-aligned rectangles, simple counter-clockwise polygons and 3D boxes
 with inclusive boundaries. Crossing times are exact rational segment parameters rounded half up
