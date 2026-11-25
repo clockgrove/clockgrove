@@ -476,6 +476,45 @@ and not the cast. The contract is in
 Later parts of #266 bring top-tier screen-space contact shadows, ambient occlusion and probe-lit
 indirect light (with #242's AO and probe pieces), and lamp (content light) character shadows.
 
+### Occlusion and reveal (#266)
+
+Occlusion is depth-true by default. Whenever world content is attached, every projected body tests
+and writes depth, so a character walking behind a trunk or a post disappears and walks out the other
+side. Nobody is faded or outlined for being hidden, except the selected character. Following a
+character to another space ends by selecting it there, so the followed character is the selected one.
+
+The content instance's optional `occluders` array is the world presentation data for this policy:
+`{ object, kind, label }`. `object` is an object inside the content root. `kind: "fade"` marks content
+that may fade (canopies, roofs). `kind: "solid"` marks content that never changes (trunks, posts,
+walls). `label` is plain text of 1 to 80 characters that reads after "behind", for example
+"the cedar". At most 64 are accepted, and a fade occluder may not share a material with a solid
+one. They are revalidated on every update like `lights` and `contacts`. Invalid descriptors fail
+`content_contract`. Content without `occluders` is never faded and never reveals anyone.
+
+Each frame, `scene-occlusion.ts` tests the selected body only. Five sample points on its drawn quad
+(the centre and the quarter points) cast rays from the camera against the visible occluders'
+geometry on the CPU. The body is hidden when three or more are covered. Alpha maps, `depthNode`
+maps and `positionNode` deformation run only on the GPU, so a quad's transparent corners count as
+cover. After a 500 ms dwell the reveal starts:
+
+- fade occluders covering the body fade to 0.25 opacity by alpha hashing, which keeps depth testing
+  and writing on, so the faded set still satisfies the content material contract and sorts with
+  the cast (their alpha test scales with the opacity, so a cut-out keeps its shape);
+- when a solid occluder covers the body, a faint silhouette shows: the body's shape in the scene
+  accent at 0.35 opacity, drawn only where something nearer covers it (depth test `GreaterDepth`);
+- solid occluders never change.
+
+Both ease over 400 ms (`INTERPOLATION_MS`), instantly under reduced motion. They ease back when the
+character walks out, the selection changes or content goes. A tier change restores faded materials
+first, and a reveal still due starts again after its dwell. `onOcclusion(handler)` reports
+`{ objectId, behind }` when a reveal starts or its main occluder changes, and `undefined` when it
+ends. `behind` is the label of the occluder covering most samples. The shell's text path shows
+`occlusionText(label, behind)` ("Ada is behind the cedar.") under the entities heading while a
+reveal lasts. `metrics.occlusion` reports `hidden`, `revealed`, `behind`, `faded` and `silhouette`.
+The reveal costs the same on every tier (`occlusionReveal` in `scene-budgets.json`). The fixture
+opts in with `?occlusion`: its model is a solid occluder ("the fixture post") and its sprite a fade
+occluder ("the fixture canopy").
+
 Deterministic captures change with grounding. They are re-approved through the capture review
 workflow (`tests/visual/approved-captures.json`), not by CI.
 
