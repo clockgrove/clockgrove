@@ -101,14 +101,14 @@ describe("derived values", () => {
         "node_modules/standardwebhooks/dist/index.js",
       ),
     ).not.toThrow();
-    expect(() =>
-      assertNoSecretValues(`${name} = ${name}.slice(6, 12);`, "bundle.js"),
-    ).not.toThrow();
     for (const refused of [
       `${name} = ${name}.concat("private-material");`,
       `${name} = decode(${name});`,
       `${name} = ${name}.concat(\`private-material\`);`,
       `${name} = ${name}.concat(other + "private-material");`,
+      `${name} = String.fromCharCode(115, 107, 45, 108, 105, 118, 101);`,
+      `${name} = bytes.fill(0x7a3f9c2e5b1d);`,
+      `${name} = ${name}.slice(6, 12);`,
     ])
       expect(() => assertNoSecretValues(refused, "bundle.js"), refused).toThrow(
         "bundle.js: secret-shaped value detected",
