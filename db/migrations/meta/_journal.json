@@ -533,6 +533,13 @@
       "when": 1796162400016,
       "tag": "0076_usage_events",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1796162400017,
+      "tag": "0077_model_breaker_transitions",
+      "breakpoints": true
     }
   ]
 }

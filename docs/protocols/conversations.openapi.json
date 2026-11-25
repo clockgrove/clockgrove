@@ -1676,6 +1676,43 @@
                 ]
               }
             }
+          },
+          "audience": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Who hears the speech under the spatial audience rules (issue 374): the kernel resolver's version and only its included observers. A refused resolution lists none.",
+            "required": [
+              "resolverVersion",
+              "observers"
+            ],
+            "properties": {
+              "resolverVersion": {
+                "type": "string"
+              },
+              "observers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "observerId",
+                    "reason",
+                    "detailLevel"
+                  ],
+                  "properties": {
+                    "observerId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "detailLevel": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       },

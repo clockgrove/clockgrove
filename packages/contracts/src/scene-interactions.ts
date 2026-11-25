@@ -450,16 +450,44 @@ export interface SayReceipt {
   readonly speech: PublicSpeech;
   /** The trusted principal and persona whose explicit action made the actor speak. */
   readonly attribution: InteractionAttribution;
+  /** Who hears the speech under the spatial audience rules; only included observers are listed. */
+  readonly audience?: {
+    readonly resolverVersion: string;
+    readonly observers: readonly {
+      readonly observerId: string;
+      readonly reason: string;
+      readonly detailLevel: string;
+    }[];
+  };
 }
 
 export function decodeSayReceipt(value: unknown): SayReceipt {
   const path = "sayReceipt";
   const v = record(value, path);
-  exactKeys(v, ["type", "speech", "attribution"], [], path);
+  exactKeys(v, ["type", "speech", "attribution"], ["audience"], path);
+  const audience = v.audience === undefined ? undefined : record(v.audience, `${path}.audience`);
+  if (audience !== undefined)
+    exactKeys(audience, ["resolverVersion", "observers"], [], `${path}.audience`);
   return Object.freeze({
     type: literal(v.type, ["public_say"], `${path}.type`),
     speech: decodePublicSpeech(v.speech),
     attribution: decodeAttribution(v.attribution, `${path}.attribution`),
+    ...(audience === undefined
+      ? {}
+      : {
+          audience: Object.freeze({
+            resolverVersion: string(audience.resolverVersion, `${path}.audience.resolverVersion`),
+            observers: array(audience.observers, `${path}.audience.observers`, (item, p) => {
+              const o = record(item, p);
+              exactKeys(o, ["observerId", "reason", "detailLevel"], [], p);
+              return Object.freeze({
+                observerId: string(o.observerId, `${p}.observerId`),
+                reason: string(o.reason, `${p}.reason`),
+                detailLevel: string(o.detailLevel, `${p}.detailLevel`),
+              });
+            }),
+          }),
+        }),
   });
 }
 

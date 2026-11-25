@@ -88,8 +88,11 @@ instead, so the next message follows it. Talk can stream its reply, and a turn c
 
 `/v1/runtime/say` (`actorId`, `messageId`, `text`) returns a `public_say` receipt. Its
 `PublicSpeech` has the actor speak a fixed scripted line, never the caller's words, attributed to
-the caller. It is the explicit public action, and it is never stored in a session. Delivering it to
-the space's audience is later Wave 5 work.
+the caller. It is the explicit public action, and it is never stored in a session. The receipt's
+optional `audience` names who hears it (issue 374): the kernel resolver's version and its included
+observers (`observerId`, `reason`, `detailLevel`), resolved for a synthetic `sound` event of the
+speaker in its space and place, with the space as its range; see [channels](channels.md). Delivering the speech into each
+observer's perception or memory is Wave 6 cognition.
 
 ## Storage, limits and retention
 

@@ -126,9 +126,21 @@ export interface RunSummary {
   readonly endedAt: string | null;
 }
 
+/** A model route's breaker opening, trying or closing, caused by one of the run's model calls. */
+export interface RunBreakerTransition {
+  readonly routeId: string;
+  readonly alias: string;
+  readonly from: "closed" | "open" | "half_open";
+  readonly to: "closed" | "open" | "half_open";
+  readonly consecutiveFailures: number;
+  readonly recordedAt: string;
+}
+
 export interface RunView extends RunSummary {
   readonly prompt: ProtectedPayload | null;
   readonly steps: readonly RunStepView[];
+  /** Absent when no breaker changed during the run. */
+  readonly breakerTransitions?: readonly RunBreakerTransition[];
 }
 
 /** Where a walk starts: a run, a conversation turn, a message, or a world command. */

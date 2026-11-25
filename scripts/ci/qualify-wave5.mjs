@@ -488,6 +488,9 @@ const observability = {
       segments: distribution(rows("processes").map(({ segments }) => segments)),
       leaseEpochs: distribution(rows("processes").map(({ leaseEpoch }) => leaseEpoch)),
     },
+    breakerTransitions: count(
+      rows("breakerTransitions").map(({ route, from, to }) => `${route} ${from}>${to}`),
+    ),
     spendMicrousd: Object.fromEntries(
       ["tenant", "world", "timeline", "actor", "session"].map((key) => [key, spendBy(key)]),
     ),
@@ -497,14 +500,7 @@ const observability = {
     },
   },
   // §18 metrics no durable record or sample carries: named, never invented, and each a deviation.
-  notObservable: [
-    {
-      id: "O-breaker",
-      metric: "provider breaker state",
-      reason:
-        "the route breaker lives in the model gateway's memory, and a run step records a breaker-skipped attempt as model_unavailable, so no durable row names the breaker; test:model-gateway asserts its opening and routing",
-    },
-  ],
+  notObservable: [],
 };
 // `measured` only when every §18 metric is; samples with metrics unmeasured are `partial`.
 const observabilityStatus =

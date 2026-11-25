@@ -114,6 +114,7 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'conversation_turns', 'participant'),
   ('clockgrove', 'agent_runs', 'participant'),
   ('clockgrove', 'run_steps', 'participant'),
+  ('clockgrove', 'model_breaker_transitions', 'participant'),
   ('clockgrove', 'actor_documents', 'participant'),
   ('clockgrove', 'actor_document_versions', 'participant'),
   ('clockgrove', 'document_change_sets', 'participant'),
@@ -289,7 +290,7 @@ BEGIN
         'clockgrove.delivery_consent', 'clockgrove.deliveries', 'clockgrove.delivery_sink_receipts',
         'clockgrove.channel_bindings', 'clockgrove.conversation_sessions', 'clockgrove.conversation_participants',
         'clockgrove.conversation_messages', 'clockgrove.conversation_turns',
-        'clockgrove.agent_runs', 'clockgrove.run_steps', 'clockgrove.actor_documents',
+        'clockgrove.agent_runs', 'clockgrove.run_steps', 'clockgrove.model_breaker_transitions', 'clockgrove.actor_documents',
         'clockgrove.actor_document_versions', 'clockgrove.document_change_sets',
         'clockgrove.context_manifests', 'clockgrove.conversation_turn_fibers',
         'clockgrove.actor_processes', 'clockgrove.actor_process_segments',
@@ -1879,6 +1880,104 @@ BEGIN
     RAISE EXCEPTION 'step added to a finished run' USING ERRCODE = 'XX999';
   EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
   END;
+END;
+$$;
+ROLLBACK;
+
+-- Breaker transitions (0077): a participant writes rows only on a running run of the row's own
+-- session and world, at most 512 a run (32 steps x 16 transitions a call); no one writes another session's rows or changes one.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a2');
+INSERT INTO clockgrove.tenant_principals (tenant_id, principal_id) VALUES ('tenant-a', 'principal-a2');
+INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
+  VALUES ('tenant-a', 'session-q', 'principal-a2', 'persona-a');
+INSERT INTO clockgrove.conversation_sessions (
+  tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
+) VALUES ('tenant-a', 'session-q', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'keeper',
+          'cognitive');
+SELECT pg_temp.act_as('tenant-a', 'principal-a');
+INSERT INTO clockgrove.conversation_participants (tenant_id, session_id, principal_id, persona_id)
+  VALUES ('tenant-a', 'session-r', 'principal-a', 'persona-a');
+INSERT INTO clockgrove.conversation_sessions (
+  tenant_id, session_id, world_id, timeline_id, partition_id, space_id, actor_id, voice_mode
+) VALUES ('tenant-a', 'session-r', 'world-a', 'timeline-a', 'partition-a', 'space-a', 'keeper',
+          'cognitive');
+CREATE FUNCTION pg_temp.new_breaker_run(run text, st text) RETURNS void LANGUAGE sql AS $$
+  INSERT INTO clockgrove.agent_runs (
+    tenant_id, run_id, world_id, timeline_id, partition_id, space_id, session_id, actor_id,
+    principal_id, persona_id, activation, input_message_id, root_run_id, model, prompt_version,
+    input_revision, status, summary
+  ) VALUES ('tenant-a', run, 'world-a', 'timeline-a', 'partition-a', 'space-a', 'session-r', 'keeper',
+            'principal-a', 'persona-a', 'conversation_message', 'message-' || run, run,
+            'scripted-fixture-v1', 'v1', 0, st, 'attempt')
+$$;
+CREATE FUNCTION pg_temp.new_transition(session text, world text, run text, call text, n integer)
+RETURNS void LANGUAGE sql AS $$
+  INSERT INTO clockgrove.model_breaker_transitions (
+    tenant_id, world_id, session_id, run_id, call_id, ordinal, route_id, alias, from_state,
+    to_state, consecutive_failures, recorded_at
+  ) VALUES ('tenant-a', world, session, run, call, n, 'route-1', 'alias-1', 'closed', 'open', 3,
+            clock_timestamp())
+$$;
+SELECT pg_temp.new_breaker_run('run-b1', 'running');
+SELECT pg_temp.new_breaker_run('run-b2', 'running');
+SELECT pg_temp.new_transition('session-r', 'world-a', 'run-b1', 'call-1', 0);
+DO $$
+BEGIN
+  -- A participant of session-q names session-q but a run of session-r.
+  PERFORM pg_temp.act_as('tenant-a', 'principal-a2',
+    '{"version":1,"allowedCategories":["public_scene","conversation"]}');
+  BEGIN
+    PERFORM pg_temp.new_transition('session-q', 'world-a', 'run-b1', 'call-forged', 0);
+    RAISE EXCEPTION 'breaker row forged on another session''s run' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  -- Nor may it name session-r itself.
+  BEGIN
+    PERFORM pg_temp.new_transition('session-r', 'world-a', 'run-b1', 'call-forged', 0);
+    RAISE EXCEPTION 'breaker row forged in another session' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  IF (SELECT count(*) FROM clockgrove.model_breaker_transitions) <> 0 THEN
+    RAISE EXCEPTION 'breaker rows visible to a non-participant';
+  END IF;
+
+  PERFORM pg_temp.act_as('tenant-a', 'principal-a');
+  BEGIN
+    PERFORM pg_temp.new_transition('session-r', 'world-b', 'run-b1', 'call-world', 0);
+    RAISE EXCEPTION 'breaker row in another world' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  BEGIN
+    PERFORM pg_temp.new_transition('session-r', 'world-a', 'run-missing', 'call-missing', 0);
+    RAISE EXCEPTION 'breaker row on a missing run' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' OR foreign_key_violation THEN NULL;
+  END;
+  -- A run holds at most 512 rows; another run of the session is not counted against it.
+  FOR n IN 2..512 LOOP
+    PERFORM pg_temp.new_transition('session-r', 'world-a', 'run-b1', 'call-' || n, 0);
+  END LOOP;
+  BEGIN
+    PERFORM pg_temp.new_transition('session-r', 'world-a', 'run-b1', 'call-513', 0);
+    RAISE EXCEPTION 'run breaker limit not enforced' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG021' THEN NULL;
+  END;
+  PERFORM pg_temp.new_transition('session-r', 'world-a', 'run-b2', 'call-b2', 0);
+  UPDATE clockgrove.agent_runs SET status = 'failed', outcome_code = 'model_error'
+   WHERE run_id = 'run-b2';
+  BEGIN
+    PERFORM pg_temp.new_transition('session-r', 'world-a', 'run-b2', 'call-late', 0);
+    RAISE EXCEPTION 'breaker row on a finished run' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN SQLSTATE 'CG020' THEN NULL;
+  END;
+  BEGIN
+    UPDATE clockgrove.model_breaker_transitions SET consecutive_failures = 0;
+    RAISE EXCEPTION 'breaker row changed' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege OR SQLSTATE 'CG020' THEN NULL;
+  END;
+  IF (SELECT count(*) FROM clockgrove.model_breaker_transitions) <> 513 THEN
+    RAISE EXCEPTION 'participant does not see their own breaker rows';
+  END IF;
 END;
 $$;
 ROLLBACK;

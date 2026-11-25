@@ -84,6 +84,7 @@ import {
   type WorldStatus,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext as TrustedContext } from "@clockgrove/contracts/trusted";
+import type { WorldState } from "@clockgrove/domain";
 import {
   ACTIVATION_ROUTES,
   type ActivationOwners,
@@ -131,6 +132,7 @@ import {
   influenceCommand,
   influenceCommandId,
   influenceReceipt,
+  sayAudience,
   scriptedSay,
 } from "./interactions.js";
 import { MemoryRuntimeLocalStorage } from "./local-storage.js";
@@ -193,6 +195,8 @@ export interface RuntimeOwnerBindings {
     select?(input: EntitySelectionRequest, context: TrustedContext): Promise<EntitySelection>;
     /** The canonical clock and recent material feed, under the scene's authority. */
     status?(scope: BrowserScope, context: TrustedContext): Promise<WorldStatus>;
+    /** The canonical state a public Say's audience is resolved over. */
+    state?(scope: BrowserScope, context: TrustedContext): Promise<WorldState>;
   };
   /** Decides a viewed-space change; null answers success without a selection. */
   readonly changeViewedSpace?: (
@@ -1283,7 +1287,14 @@ export class RuntimeWorker {
           "say.ingress.replyMetadata",
           "Say has no private reply target",
         );
-      return jsonResponse(scriptedSay(say, participant, new Date().toISOString(), envelope));
+      const state = await this.bindings.observation?.state?.(say.scope, context);
+      const audience =
+        state === undefined
+          ? undefined
+          : sayAudience(state, say.scope.spaceId, say.actorId, say.messageId);
+      return jsonResponse(
+        scriptedSay(say, participant, new Date().toISOString(), envelope, audience),
+      );
     } catch (error) {
       if (error instanceof ConversationRefusedError)
         return jsonResponse({ error: error.code }, CONVERSATION_REFUSAL_STATUS[error.code]);

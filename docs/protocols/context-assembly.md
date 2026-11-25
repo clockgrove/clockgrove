@@ -42,7 +42,9 @@ Before commit, a change set checks:
 - the expected version (the head);
 - authority;
 - the write class;
-- the size limits;
+- the limits: at most 8,192 bytes a version (`document_too_large`), 8 operations a change set
+  (`change_set_too_large`), 256 documents an actor (`document_limit_reached`) and 1,000 versions a
+  document (`version_limit_reached`);
 - provenance: the change set names its proposer (`operator` or `model`), principal, persona, actor
   and, for a model, its run and session.
 
@@ -107,10 +109,16 @@ application does.
   replay perceives the same. At most 24 entities and 8 KiB are listed (issue 349), and a final line
   counts the perceived entities left out.
 
-`POST /v1/runtime/actor-documents/read` takes `actorId`, `path` and an optional `version` (default:
-the head). It answers that version with its text and provenance (`changeSetId`, `proposer`,
-`principalId`, `runId`) under `runtime:world-inspect` and a `private_cognition` ceiling. An unknown
-path or version answers `404 document_not_found`.
+`POST /v1/runtime/actor-documents/read` takes `actorId`, `path` and an optional `version` (meant as
+the document version, default the head). The request envelope's own `version` is that same key and
+must be 1, so today a read always names version 1 (a known defect, left for a follow-up because
+fixing it changes the wire format). It answers that version with its text and provenance
+(`changeSetId`, `proposer`, `principalId`, `runId`) and the versions' retention policy,
+`retention`: `{ policy: "world_lifetime", maxVersions: 1000, maxDocumentBytes: 8192,
+maxDocuments: 256 }`. Every version is kept for the world's life (issue 17 decision;
+`db/retention.json`) within those bounds, so the first version stays readable after later ones.
+The read is under `runtime:world-inspect` and a `private_cognition` ceiling. An unknown path or
+version answers `404 document_not_found`.
 
 ### Who reads documents
 
