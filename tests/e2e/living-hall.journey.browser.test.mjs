@@ -2984,12 +2984,31 @@ const observeHall = async (backend) => {
         const { budgets } = JSON.parse(
           await readFile(path.join(root, "apps/web/scene-budgets.json"), "utf8"),
         );
+        // Issue 457: patchApplicationMs is the draw of a committed patch. The animating viewer has
+        // drawn no commit since it booted, so its slowest-draw record held only its boot redraw
+        // once the atlas loaded, made while the other viewers boot. It is cleared, one command is
+        // committed (the rain the hall already shows), and read once the viewer has drawn it.
+        await kin.viewer.evaluate(() => {
+          globalThis.hallAdapter.metrics.patchMs = 0;
+        });
+        await commit({
+          ...weather,
+          commandId: "browser-budget-patch",
+          payload: { schemaVersion: 2, rainIntensity: Number(golden.weather.rainIntensity) },
+        });
+        const patchedRevision = (await durable()).split("|")[0];
+        await expect
+          .poll(() => kin.viewer.evaluate(() => globalThis.hallDrawnRevision))
+          .toBe(patchedRevision);
         // Frame time is sampled over this settled window on the animating viewer, so the golden
-        // hall's boot in the touch viewer does not count towards it.
+        // hall's boot in the touch viewer does not count towards it. The window is one full
+        // 120-frame sample (FRAME_SAMPLES), however long the runner takes to draw it.
         await kin.viewer.evaluate(() => {
           globalThis.hallAdapter.metrics.frameMs.length = 0;
         });
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        await expect
+          .poll(() => kin.viewer.evaluate(() => globalThis.hallAdapter.metrics.frameMs.length))
+          .toBe(120);
         const drawnState = () =>
           hall.evaluate(() => {
             const adapter = globalThis.hallAdapter;
@@ -3134,7 +3153,12 @@ const observeHall = async (backend) => {
         process.stdout.write(
           `scene runtime budgets measured: ${JSON.stringify({ backend: state.backend, ...measured })}\n`,
         );
-        expect([runtime.entityCount, frames.length > 0]).toEqual([placed.length, true]);
+        // The committed patch was drawn as a patch, not a rebuild, so its draw is what is measured.
+        expect([runtime.entityCount, frames.length > 0, runtime.patchMs > 0]).toEqual([
+          placed.length,
+          true,
+          true,
+        ]);
         for (const [name, value] of Object.entries(measured))
           expect([name, value <= budgets[name].limit]).toEqual([name, true]);
         // Wheel zoom stops at its bounds and dragging never pans the view out of its bounds.
