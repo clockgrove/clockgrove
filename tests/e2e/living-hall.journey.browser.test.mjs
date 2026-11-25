@@ -1451,10 +1451,14 @@ const observeHall = async (backend) => {
             );
             await feedFlashback.click();
             const feedMoment = decodeFlashback(await (await feedShown).json());
+            // Issue 457: every direct read closes its connection. Playwright's request context
+            // pools keep-alive sockets with no idle timeout of its own, and Vite's server closes an
+            // idle one after its keepAliveTimeout (5 s, plus Node's 1 s buffer); a read written on
+            // that socket as the server closes it is reset (ECONNRESET), as on a slow runner.
             const feedDirect = await page.request.post(
               `http://127.0.0.1:${address.port}/v1/runtime/flashback`,
               {
-                headers: { authorization: "Bearer hall-inspect" },
+                headers: { authorization: "Bearer hall-inspect", connection: "close" },
                 data: { version: 1, ...auth.scope, eventId: feedEvent },
               },
             );
@@ -1699,7 +1703,10 @@ const observeHall = async (backend) => {
         await page.getByRole("button", { name: "Close Why", exact: true }).click();
         // UI-only stand-in: PostgreSQL/HTTP outside-meal proof lives in resource-why.journey.postgres.test.ts.
         await page.route("**/v1/runtime/why", async (route) => {
-          const response = await route.fetch();
+          // Issue 457: fetched through the same pooled request context as the direct reads.
+          const response = await route.fetch({
+            headers: { ...route.request().headers(), connection: "close" },
+          });
           const value = await response.json();
           value.resourceCauses = [
             {
@@ -1731,7 +1738,7 @@ const observeHall = async (backend) => {
           const answer = await page.request.post(
             `http://127.0.0.1:${address.port}/v1/runtime/flashback`,
             {
-              headers: { authorization: "Bearer hall-inspect" },
+              headers: { authorization: "Bearer hall-inspect", connection: "close" },
               data: { version: 1, ...auth.scope, ...fields },
             },
           );
@@ -2388,7 +2395,7 @@ const observeHall = async (backend) => {
           const observed = await page.request.post(
             `http://127.0.0.1:${address.port}/v1/runtime/${endpoint}`,
             {
-              headers: { authorization: "Bearer hall-inspect" },
+              headers: { authorization: "Bearer hall-inspect", connection: "close" },
               data: { version: 1, ...auth.scope, ...fields },
             },
           );
@@ -2413,7 +2420,7 @@ const observeHall = async (backend) => {
           const rejected = await page.request.post(
             `http://127.0.0.1:${address.port}/v1/runtime/why`,
             {
-              headers: { authorization: `Bearer ${credential}` },
+              headers: { authorization: `Bearer ${credential}`, connection: "close" },
               data: { version: 1, ...auth.scope, ...fields },
             },
           );
@@ -2977,12 +2984,31 @@ const observeHall = async (backend) => {
         const { budgets } = JSON.parse(
           await readFile(path.join(root, "apps/web/scene-budgets.json"), "utf8"),
         );
+        // Issue 457: patchApplicationMs is the draw of a committed patch. The animating viewer has
+        // drawn no commit since it booted, so its slowest-draw record held only its boot redraw
+        // once the atlas loaded, made while the other viewers boot. It is cleared, one command is
+        // committed (the rain the hall already shows), and read once the viewer has drawn it.
+        await kin.viewer.evaluate(() => {
+          globalThis.hallAdapter.metrics.patchMs = 0;
+        });
+        await commit({
+          ...weather,
+          commandId: "browser-budget-patch",
+          payload: { schemaVersion: 2, rainIntensity: Number(golden.weather.rainIntensity) },
+        });
+        const patchedRevision = (await durable()).split("|")[0];
+        await expect
+          .poll(() => kin.viewer.evaluate(() => globalThis.hallDrawnRevision))
+          .toBe(patchedRevision);
         // Frame time is sampled over this settled window on the animating viewer, so the golden
-        // hall's boot in the touch viewer does not count towards it.
+        // hall's boot in the touch viewer does not count towards it. The window is one full
+        // 120-frame sample (FRAME_SAMPLES), however long the runner takes to draw it.
         await kin.viewer.evaluate(() => {
           globalThis.hallAdapter.metrics.frameMs.length = 0;
         });
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        await expect
+          .poll(() => kin.viewer.evaluate(() => globalThis.hallAdapter.metrics.frameMs.length))
+          .toBe(120);
         const drawnState = () =>
           hall.evaluate(() => {
             const adapter = globalThis.hallAdapter;
@@ -3127,7 +3153,12 @@ const observeHall = async (backend) => {
         process.stdout.write(
           `scene runtime budgets measured: ${JSON.stringify({ backend: state.backend, ...measured })}\n`,
         );
-        expect([runtime.entityCount, frames.length > 0]).toEqual([placed.length, true]);
+        // The committed patch was drawn as a patch, not a rebuild, so its draw is what is measured.
+        expect([runtime.entityCount, frames.length > 0, runtime.patchMs > 0]).toEqual([
+          placed.length,
+          true,
+          true,
+        ]);
         for (const [name, value] of Object.entries(measured))
           expect([name, value <= budgets[name].limit]).toEqual([name, true]);
         // Wheel zoom stops at its bounds and dragging never pans the view out of its bounds.
