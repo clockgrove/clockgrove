@@ -99,6 +99,21 @@ export class FlashbackStage {
 }
 
 /**
+ * Issue 273: the tier the PiP is sized by, the lowest live tier seen while the flashback is open,
+ * given the one held so far. A live step down that removes the PiP keeps it removed until the
+ * flashback closes, across chain steps, so a recovering live tier cannot recreate it. With no live
+ * canvas there is no PiP, but the lowest tier seen is kept.
+ */
+export function pipTierHeld(
+  tier: QualityTier | undefined,
+  lowest: QualityTier | undefined,
+): { readonly held: QualityTier | undefined; readonly lowest: QualityTier | undefined } {
+  if (tier === undefined) return { held: undefined, lowest };
+  const next = lowest === undefined || TIERS.indexOf(tier) < TIERS.indexOf(lowest) ? tier : lowest;
+  return { held: next, lowest: next };
+}
+
+/**
  * Issue 273: plays a flashback's journaled frames picture-in-picture in the flashback's one
  * renderer (FlashbackStage) while the live scene keeps running. The PiP's size follows the live
  * tier's budget; without one, the frame captions and the panel's text summary are the floor.
@@ -108,12 +123,21 @@ export function FlashbackReplay({
   flashback,
   stage,
   tier,
+  held,
+  failed,
+  onFailed,
   content,
   dayLengthMs,
 }: {
   readonly flashback: Flashback;
   readonly stage: FlashbackStage;
+  /** The live tier now. */
   readonly tier: QualityTier | undefined;
+  /** The lowest live tier seen while the flashback is open (pipTierHeld), which sizes the PiP. */
+  readonly held: QualityTier | undefined;
+  /** Whether the PiP's renderer failed while the flashback is open. */
+  readonly failed: boolean;
+  readonly onFailed: () => void;
   readonly content?: RendererContent;
   readonly dayLengthMs: bigint | undefined;
 }) {
@@ -121,16 +145,7 @@ export function FlashbackReplay({
   const last = frames.length - 1;
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(() => !reducedMotion());
-  const [failed, setFailed] = useState(false);
   const slot = useRef<HTMLDivElement>(null);
-  // The lowest live tier seen while this flashback is open: a live step down that removes the PiP
-  // keeps it removed until the flashback closes, so a recovering live tier cannot recreate it.
-  const [lowest, setLowest] = useState(tier);
-  const held =
-    tier === undefined || lowest === undefined || TIERS.indexOf(tier) < TIERS.indexOf(lowest)
-      ? tier
-      : lowest;
-  if (held !== lowest) setLowest(held);
   const budget = held === undefined ? null : FLASHBACK_PIP_BUDGET[held];
   const shown = budget !== null && !failed;
 
@@ -157,9 +172,9 @@ export function FlashbackReplay({
     host.style.height = `${budget.height}px`;
     host.dataset.pipTier = held;
     at.appendChild(host);
-    stage.start(content, () => setFailed(true));
+    stage.start(content, onFailed);
     return () => host.remove();
-  }, [shown, held, budget, stage, content]);
+  }, [shown, held, budget, stage, content, onFailed]);
 
   useEffect(() => {
     stage.setDayLength(dayLengthMs);

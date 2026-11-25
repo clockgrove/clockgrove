@@ -2302,6 +2302,46 @@ const observeHall = async (backend) => {
             .getByRole("listitem")
             .allTextContents(),
         ).toEqual(flashbackLines(parentMoment));
+        // The PiP keeps the lowest live tier for the whole flashback: opened at low, it stays off
+        // when the live tier recovers, and a chain step after that builds no renderer either.
+        expect(await page.evaluate(() => globalThis.hallAdapter.tier)).toBe("low");
+        await page.evaluate(() => {
+          globalThis.hallPipBefore = globalThis.hallPipAdapter;
+          const adapter = globalThis.hallAdapter;
+          adapter.governor = undefined;
+          adapter.setQuality("medium");
+        });
+        const slowed = flashbackPanel.getByText(
+          "Picture-in-picture stopped when the live view slowed; the frame captions and summary remain.",
+          { exact: true },
+        );
+        await slowed.waitFor();
+        expect(parentMoment.before.length).toBeGreaterThan(0);
+        await flashbackPanel
+          .getByRole("button", {
+            name: `And before that: command ${parentMoment.before[0]}`,
+            exact: true,
+          })
+          .click();
+        await flashbackPanel
+          .getByRole("heading", {
+            name: `Flashback: command ${parentMoment.before[0]}`,
+            exact: true,
+          })
+          .waitFor();
+        await flashbackPanel.getByText("Flashback loaded.", { exact: true }).waitFor();
+        await slowed.waitFor();
+        expect(
+          await page.evaluate(() => [
+            globalThis.hallPipAdapter === globalThis.hallPipBefore,
+            document.querySelectorAll(".rw-flashback-pip").length,
+          ]),
+        ).toEqual([true, 0]);
+        await page.evaluate(() => {
+          const adapter = globalThis.hallAdapter;
+          adapter.governor = globalThis.hallGovernor;
+          adapter.setQuality("low");
+        });
         await flashbackPanel.getByRole("button", { name: "Close flashback", exact: true }).click();
         expect(await parentFlashback.evaluate((button) => button === document.activeElement)).toBe(
           true,

@@ -6,8 +6,9 @@ import type {
   FlashbackLineKind,
   ObjectId,
 } from "@clockgrove/contracts";
-import { useEffect, useRef, useState } from "react";
-import { FlashbackReplay, FlashbackStage } from "./flashback-pip.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { FlashbackReplay, FlashbackStage, pipTierHeld } from "./flashback-pip.js";
+import type { QualityTier } from "./quality-tier.js";
 import type { RendererContent } from "./renderer-content.js";
 import type { SceneSession } from "./scene-api.js";
 import { useFlashbackQuery } from "./scene-queries.js";
@@ -112,9 +113,18 @@ export function FlashbackPanel({
   // Issue 273: one PiP renderer for the whole time the flashback is open, released on close.
   const [stage] = useState(() => new FlashbackStage());
   useEffect(() => () => stage.stop(), [stage]);
+  // The lowest live tier seen and whether the PiP failed are kept for the whole flashback, not one
+  // moment: a chain step, retry or back after a live drop to low or a lost device builds no PiP.
+  const [pipLowest, setPipLowest] = useState<QualityTier | undefined>(undefined);
+  const [pipFailed, setPipFailed] = useState(false);
+  const onPipFailed = useCallback(() => setPipFailed(true), []);
+  const pip = pipTierHeld(open ? tier : undefined, pipLowest);
+  if (open && pip.lowest !== pipLowest) setPipLowest(pip.lowest);
   useEffect(() => {
     if (open) return;
     stage.stop();
+    setPipLowest(undefined);
+    setPipFailed(false);
     setChain([]);
     refocus.current?.focus();
     refocus.current = null;
@@ -202,6 +212,9 @@ export function FlashbackPanel({
             flashback={value}
             stage={stage}
             tier={tier}
+            held={pip.held}
+            failed={pipFailed}
+            onFailed={onPipFailed}
             dayLengthMs={dayLengthMs}
             {...(content && { content })}
           />

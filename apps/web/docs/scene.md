@@ -318,9 +318,10 @@ Low has none because it is the tier a device or a struggling frame rate drops to
 renderer would cost the live view; the sizes are a half and three-quarters of the renderer's
 640 × 400 logical view. With no live canvas (text fallback, canvas unavailable) there is no PiP
 canvas either. The frame captions and the flashback's text summary remain at every tier. A PiP
-that loses its device or refuses a frame is destroyed and says so; the live scene is unaffected.
-The PiP keeps the lowest live tier seen while it is open: a live step down to low removes it until
-the flashback closes, so a live tier that recovers cannot recreate it mid-replay.
+that loses its device or refuses a frame is destroyed and says so, and stays off until the
+flashback closes; the live scene is unaffected. The flashback keeps the lowest live tier seen while
+it is open: a live step down to low removes the PiP until the flashback closes, so a live tier that
+recovers cannot recreate it mid-replay or on a later chain step, retry or back.
 
 What the PiP itself adds is `FLASHBACK_PIP_LIMITS`, passed as the adapter's optional sixth
 argument (`RendererLimits`): its own governor's ceiling is low, so it renders at low quality (no
