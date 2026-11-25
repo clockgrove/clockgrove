@@ -194,8 +194,8 @@ it("builds every candidate, renders the fixed slice, writes the declared record 
 }, 900_000);
 
 // Product content uses the actual adapter, with no world runtime, database or authentication.
-// Decision: 420 s per backend bounds software shader compilation, two 90 s tier step downs and
-// #266's occlusion pass at three tiers inside the existing browser job; these are correctness
+// Decision: 480 s per backend bounds software shader compilation, two 90 s tier step downs,
+// #266's lamp shadow proof and occlusion pass at three tiers inside the existing browser job; these are correctness
 // checks, never hardware timing claims.
 it.each(["webgpu", "webgl2"])(
   "world content shares the product look, content lights and shadows, and contains failures (%s)",
@@ -490,8 +490,103 @@ it.each(["webgpu", "webgl2"])(
             received: meanDarkening(cast, shaded, pixelAt(centre)),
           };
         };
+        // #266 lamp shadows. The key lamp stands to the right of the marker, low and in front, with
+        // the sky's key on the same side, so the marker's own lookup lies toward the lamp. Content is
+        // hidden so samples read the marker, and the sky is dimmed to nothing so only the lamp casts.
+        const lampSetup = async (run) => {
+          f.diagnostics.root.visible = false;
+          f.setKeyLamp([6, 0, 3]);
+          const intensities = adapter.sky.map((light) => light.intensity);
+          const directions = adapter.sky.map((light) => light.userData.shadowDirection);
+          adapter.sky.forEach((light, index) => {
+            light.intensity = 0;
+            light.userData.shadowDirection = directions[index]
+              .clone()
+              .set(0.6, 0.1, 0.8)
+              .normalize();
+          });
+          await capture();
+          try {
+            return await run();
+          } finally {
+            adapter.sky.forEach((light, index) => {
+              light.intensity = intensities[index];
+              light.userData.shadowDirection = directions[index];
+            });
+            f.diagnostics.root.visible = true;
+            f.setKeyLamp();
+            await capture();
+          }
+        };
+        // At the tier with a lamp map: the marker's silhouette darkens the floor beside it, and not itself.
+        const lampShadows = (body) =>
+          lampSetup(async () => {
+            body.geometry.computeBoundingBox();
+            const box = body.geometry.boundingBox;
+            const centre = body.localToWorld(box.getCenter(body.position.clone()));
+            const corners = [];
+            for (const x of [box.min.x, box.max.x])
+              for (const y of [box.min.y, box.max.y])
+                for (const z of [box.min.z, box.max.z])
+                  corners.push(pixelAt(body.localToWorld(centre.clone().set(x, y, z))));
+            const left = Math.min(...corners.map(([x]) => x)) - 1,
+              right = Math.max(...corners.map(([x]) => x)) + 1,
+              top = Math.min(...corners.map(([, y]) => y)) - 1,
+              bottom = Math.max(...corners.map(([, y]) => y)) + 1;
+            body.castShadow = false;
+            const uncast = await pixels(await capture());
+            body.castShadow = true;
+            const cast = await pixels(await capture());
+            const width = adapter.renderer.domElement.width;
+            let beside = 0;
+            for (let at = 0; at < cast.length; at += 4) {
+              const px = (at / 4) % width,
+                py = Math.floor(at / 4 / width);
+              if (px >= left && px <= right && py >= top && py <= bottom) continue;
+              const delta =
+                cast[at] +
+                cast[at + 1] +
+                cast[at + 2] -
+                uncast[at] -
+                uncast[at + 1] -
+                uncast[at + 2];
+              if (delta < -10) beside++;
+            }
+            return { beside, self: meanDarkening(uncast, cast, pixelAt(centre)) };
+          });
+        // Below it: the contact's stand-in darkens the floor on the side away from the lamp, and not the
+        // side toward it. Compared with the stand-in taken off the contact; the marker is hidden.
+        const standInDarkening = (body) =>
+          lampSetup(async () => {
+            body.body.visible = false;
+            const contact = body.shadow;
+            const decal = contact.userData.standIn;
+            const lamp = adapter.keyLamp;
+            const slope = Math.sin(Math.PI / 3),
+              rise = Math.cos(Math.PI / 3);
+            const offset = lamp.position.clone().sub(contact.position);
+            const height = offset.y * slope + offset.z * rise;
+            // The floor-plane direction pointing away from the lamp's floor point.
+            const away = offset
+              .clone()
+              .set(-offset.x, -offset.y + height * slope, -offset.z + height * rise)
+              .normalize();
+            const reach = Math.max(0.5 * contact.userData.span, 14);
+            const far = pixelAt(contact.position.clone().addScaledVector(away, reach)),
+              near = pixelAt(contact.position.clone().addScaledVector(away, -reach));
+            const shown = await pixels(await capture());
+            decal.removeFromParent();
+            const hidden = await pixels(await capture());
+            contact.add(decal);
+            body.body.visible = true;
+            return {
+              away: meanDarkening(hidden, shown, far),
+              toward: meanDarkening(hidden, shown, near),
+            };
+          });
         const counts = [];
         const grounding = [];
+        const lamps = [];
         for (const tier of ["low", "medium", "high"]) {
           f.setQuality(tier);
           adapter.updateContent(0);
@@ -514,6 +609,11 @@ it.each(["webgpu", "webgl2"])(
             shadowSides: [].concat(body.body.material).map((material) => material.shadowSide),
             darkening: meshes.map((mesh) => darkening(shown, hidden, mesh)),
             shared: tier === "low" ? null : await sharedShadows(body.body),
+          });
+          lamps.push({
+            maps: adapter.metrics.lampShadowMaps,
+            standIns: adapter.metrics.lampStandIns,
+            ...(tier === "high" ? await lampShadows(body.body) : await standInDarkening(body)),
           });
         }
         f.setContentShadows(false);
@@ -584,6 +684,7 @@ it.each(["webgpu", "webgl2"])(
         const status = adapter.metrics.contentStatus;
         f.setQuality("high");
         await capture();
+        const lampRef = adapter.keyLamp;
         let failureRetired = 0;
         for (const light of adapter.sky)
           light.shadow.map?.addEventListener("dispose", () => failureRetired++);
@@ -598,6 +699,13 @@ it.each(["webgpu", "webgl2"])(
           adapter.metrics.shadowTextureBytes,
           f.diagnostics.root.parent === null,
           document.querySelector("#status").textContent,
+        ];
+        const lampFailure = [
+          adapter.metrics.lampShadowMaps,
+          adapter.metrics.lampStandIns,
+          lampRef.castShadow,
+          lampRef.shadow.map,
+          adapter.keyLamp === undefined,
         ];
         // #266: the unkeyed marker's bottom meets its anchor, and a placed lamp's light stays 35
         // units in front of the lamp's real depth (floor depth -√3·y at 12 units below the light).
@@ -632,6 +740,8 @@ it.each(["webgpu", "webgl2"])(
           status,
           counts,
           grounding,
+          lamps,
+          lampFailure,
           surfaceChanges,
           retired,
           low,
@@ -650,7 +760,7 @@ it.each(["webgpu", "webgl2"])(
       expect(lighting.counts.map((row) => row.slice(0, 3))).toEqual([
         [2, 0, 0],
         [4, 1, 3_145_728],
-        [8, 2, 25_165_824],
+        [8, 2, 29_884_416],
       ]);
       for (let i = 0; i < 3; i++)
         expect(lighting.counts[i][3]).toBeLessThanOrEqual([16, 64, 192][i] * 1024 * 1024);
@@ -673,6 +783,19 @@ it.each(["webgpu", "webgl2"])(
         expect(shared.received).toBeGreaterThan(10);
         expect(shared.self).toBeLessThan(10);
       }
+      // #266 lamp shadows: the key lamp casts at high only, one 256-px cube map (4,718,592 B) beside
+      // the sky's; below it, each contact carries a stand-in that darkens the floor away from the lamp.
+      expect(lighting.lamps.map((row) => row.maps)).toEqual([0, 0, 1]);
+      expect(lighting.lamps[0].standIns).toBeGreaterThan(0);
+      expect(lighting.lamps[1].standIns).toBeGreaterThan(0);
+      expect(lighting.lamps[2].standIns).toBe(0);
+      for (const row of lighting.lamps.slice(0, 2)) {
+        expect(row.away).toBeGreaterThan(10);
+        expect(row.away - row.toward).toBeGreaterThan(10);
+      }
+      expect(lighting.lamps[2].beside).toBeGreaterThan(8);
+      expect(lighting.lamps[2].self).toBeLessThan(10);
+      expect(lighting.lampFailure).toEqual([0, 0, false, null, true]);
       expect(lighting.status).toBe("ready");
       for (const changed of lighting.surfaceChanges) expect(changed).toBeGreaterThan(20);
       expect(lighting.retired).toBeGreaterThanOrEqual(2);
@@ -1160,7 +1283,7 @@ it.each(["webgpu", "webgl2"])(
       await rm(world, { recursive: true, force: true });
     }
   },
-  420_000,
+  480_000,
 );
 
 // Issue 281: generate, validate and render the same rigged GLB; no binary fixture is retained.

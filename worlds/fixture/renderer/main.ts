@@ -61,6 +61,15 @@ const api = {
     internal.updateContent(0);
     internal.dirty = true;
   },
+  /** #266: only the first (key) lamp shines, at `position` in metres; no argument restores all ten. */
+  setKeyLamp(position?: [number, number, number]) {
+    (diagnostics.lightSources ?? []).forEach((source: any, index: number) => {
+      source.position = (index === 0 && position) || [-4, 2, 8];
+      source.intensity = position && index > 0 ? 0 : 60000;
+    });
+    internal.updateContent(0);
+    internal.dirty = true;
+  },
   setContentShadows(enabled: boolean) {
     if (diagnostics.shadowCaster) diagnostics.shadowCaster.castShadow = enabled;
     internal.dirty = true;

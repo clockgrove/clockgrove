@@ -414,8 +414,8 @@ content grounds its model and sprite this way.
 The instance's optional `shadows: true` enables content mesh `castShadow` and `receiveShadow`
 flags and floor shadow reception. Meshes choose their flags individually; the renderer bounds
 scene directional shadow maps by tier. Omission or `false` disables participation. Point lights
-from descriptors illuminate surfaces but do not allocate point-light shadow cube maps.
-The standalone fixture opts in with `?lighting`.
+from descriptors illuminate surfaces. Only the key lamp may allocate a point-light shadow cube map,
+at the tiers that hold one (see Lamp shadows). The standalone fixture opts in with `?lighting`.
 
 These are explicit #184 visual policy decisions to bound per-fragment light work and shadow
 allocation. The lower tier retains local illumination with shadow passes disabled. Existing
@@ -449,11 +449,11 @@ Opacity is a core of 0.3 fading out by 45% of the radius plus an ambient halo of
 the scene's lit node material in black (Lambert at low, Standard above), so fog, tone mapping, the
 grade and the depth buffer treat it as they treat the set. Content in front hides it.
 
-| Tier | Grounding | Key-light shadow maps for cast and set | Per-body draws |
-| --- | --- | --- | --- |
-| low | contact shape | none | 1 contact shape |
-| medium | contact shape + key-light map | 1 × 512 when active | contact shape + 1 shadow pass |
-| high | contact shape + key-light maps | 2 × 1024 when active | contact shape + 2 shadow passes |
+| Tier | Grounding | Key-light shadow maps for cast and set | Key lamp | Per-body draws |
+| --- | --- | --- | --- | --- |
+| low | contact shape | none | stand-in | 1 contact shape (+ 1 stand-in near a lamp) |
+| medium | contact shape + key-light map | 1 × 512 when active | stand-in | contact shape + 1 shadow pass (+ 1 stand-in near a lamp) |
+| high | contact shape + key-light maps | 2 × 1024 when active | cube map 256 when active, else stand-in | contact shape + 2 shadow passes + 6 lamp faces |
 
 Maps are active only when content opts in with `shadows: true`. Then every projected body casts into
 and receives the same key-light maps as the set. Its silhouette casts through the alpha-tested
@@ -473,8 +473,39 @@ Painterly worlds carry painterliness in their textures. No screen-space filter a
 and not the cast. The contract is in
 [one picture](../../../docs/protocols/world-presentation.md#one-picture).
 
-Later parts of #266 bring top-tier screen-space contact shadows, ambient occlusion and probe-lit
-indirect light (with #242's AO and probe pieces), and lamp (content light) character shadows.
+A later part of #266 brings top-tier screen-space contact shadows, ambient occlusion and probe-lit
+indirect light (with #242's AO and probe pieces).
+
+### Lamp shadows (#266)
+
+The key lamp is the brightest admitted content light (`lights`, the first on ties, intensity above
+0). Only it casts; other content lights and projected lamps illuminate without shadows, for cast and
+set alike.
+
+| Tier | Lamp shadow | Storage |
+| --- | --- | ---: |
+| low | stand-in on every contact shape | 0 |
+| medium | stand-in on every contact shape | 0 |
+| high | key lamp cube map, side 256, when active | 4,718,592 bytes |
+
+At high, when the set opts into shadows (`shadows: true`, the same condition as the key-light maps),
+the key lamp's point light casts a cube shadow map (near 1, far its range). Projected bodies cast
+into it with the silhouette they cast into the key-light maps, and content meshes cast and receive as
+their flags choose. Its storage, 6 faces × 256² × 12 bytes, counts in `shadowTextureBytes` and in
+the texture ceiling before viewport targets are sized. Tier changes, a new key lamp, content
+failure and destruction retire it.
+
+Everywhere else a key lamp shines (low, medium, or high without the opt-in), every contact shape,
+the projected bodies' and content `contacts` alike, gains a stand-in: a soft dark decal on the floor
+starting at the contact point and pointing away from the lamp's floor point. It lengthens from one
+to three contact spans as the lamp's height above the floor shrinks against its distance, and its
+opacity is 0.3 scaled by (1 − d/range)², none at or beyond the lamp's range. It moves and retires
+with its contact shape. With the lamp map active, no stand-ins draw.
+
+`metrics.lampShadowMaps` (0 or 1) and `metrics.lampStandIns` report what is drawn. The decision
+(Kirk, 2026-11-11) puts the lamp map at the top tier if the quality lab's frame cost allows: the
+budget here is software-measured, and a lab result that does not hold it sets high's lamp maps to 0
+in `SCENE_QUALITY` and `scene-budgets.json`, leaving the stand-in.
 
 ### Occlusion and reveal (#266)
 

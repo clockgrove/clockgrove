@@ -176,7 +176,11 @@ export interface RendererContentOccluder {
 }
 export interface RendererContentInstance {
   readonly root: THREE.Group;
-  /** Renderer-owned, unshadowed point lights, admitted in array order within the tier cap. */
+  /**
+   * Renderer-owned point lights, admitted in array order within the tier cap. The brightest
+   * admitted one, the key lamp, casts character and set shadows where the tier holds a lamp map,
+   * else a stand-in on contact shapes (#266).
+   */
   readonly lights?: readonly RendererContentLight[];
   /** Opt into scene directional shadows; meshes still choose castShadow and receiveShadow. */
   readonly shadows?: boolean;
