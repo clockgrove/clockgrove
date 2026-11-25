@@ -269,7 +269,9 @@ export class SceneOcclusion {
         if (!object.visible) shown = false;
       if (!shown) continue;
       // Content may have moved an anchor above the occluder since the last render.
-      occluder.object.updateWorldMatrix(true, true);
+      // updateMatrixWorld, not updateWorldMatrix, below it: a skinned mesh keeps its bind inverse there.
+      occluder.object.updateWorldMatrix(true, false);
+      occluder.object.updateMatrixWorld(true);
       visible.push(occluder);
     }
     const key = this.nextKey;
@@ -281,8 +283,12 @@ export class SceneOcclusion {
       occluder.object.traverseVisible((child) => {
         if (!(child instanceof THREE.Mesh)) return;
         key.push(child, child.geometry, ...child.matrixWorld.elements);
-        if (child instanceof THREE.SkinnedMesh)
-          for (const bone of child.skeleton.bones) key.push(...bone.matrixWorld.elements);
+        // The renderer refreshes bone matrices only when it draws, after this test: refresh them
+        // now, or a moved skinned occluder is tested (and its answer kept) at its old pose.
+        if (child instanceof THREE.SkinnedMesh) {
+          child.skeleton.update();
+          for (const value of child.skeleton.boneMatrices ?? []) key.push(value);
+        }
       });
     }
     if (key.length === this.key.length && key.every((value, at) => value === this.key[at]))
