@@ -1703,7 +1703,10 @@ const observeHall = async (backend) => {
         await page.getByRole("button", { name: "Close Why", exact: true }).click();
         // UI-only stand-in: PostgreSQL/HTTP outside-meal proof lives in resource-why.journey.postgres.test.ts.
         await page.route("**/v1/runtime/why", async (route) => {
-          const response = await route.fetch();
+          // Issue 457: fetched through the same pooled request context as the direct reads.
+          const response = await route.fetch({
+            headers: { ...route.request().headers(), connection: "close" },
+          });
           const value = await response.json();
           value.resourceCauses = [
             {
