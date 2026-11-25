@@ -36,7 +36,7 @@ import {
   validateContent,
   validateContentLighting,
 } from "./renderer-content.js";
-import { type OcclusionMetrics, SceneOcclusion } from "./scene-occlusion.js";
+import { clearsSilhouette, type OcclusionMetrics, SceneOcclusion } from "./scene-occlusion.js";
 import { worldShell } from "./shell.js";
 import {
   applyScenePatch,
@@ -757,8 +757,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         !(instance.root instanceof THREE.Group) ||
         instance.root.parent ||
         typeof instance.update !== "function" ||
-        !validateContent(instance.root) ||
-        !validateContentLighting(instance)
+        !validateContent(instance.root)
       ) {
         this.failContent("content_contract");
         return;
@@ -826,11 +825,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       );
       this.applyMaterialTier(true);
       if (!this.content) return true;
-      if (
-        instance.root.parent !== this.scene ||
-        !validateContent(instance.root) ||
-        !validateContentLighting(instance)
-      ) {
+      if (instance.root.parent !== this.scene || !validateContent(instance.root)) {
         this.failContent("content_contract");
         return true;
       }
@@ -839,6 +834,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         count += 1;
       });
       this.metrics.contentObjects = count;
+      // Validates lights, contacts and occluders once per update, and fails content_contract.
       this.syncContentLighting();
       this.updateTextureBytes();
       return true;
@@ -1661,6 +1657,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       drawn.body.renderOrder = 10000 + index;
       if (!this.motions.has(drawn.body)) drawn.body.position.z = depth;
       drawn.body.material.depthWrite = this.content ? true : !drawn.key;
+      // #266: a body hides the selected character's silhouette where it stands in front of it.
+      clearsSilhouette(drawn.body.material);
       drawn.shadow.renderOrder = index;
     });
     this.order = placements.map((at) => at.objectId);
@@ -2030,6 +2028,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       mirror.material.stencilWrite = true;
       mirror.material.stencilRef = 1;
       mirror.material.stencilFunc = THREE.EqualStencilFunc;
+      // Bit 1 only: the occlusion silhouette owns bit 2 (#266).
+      mirror.material.stencilFuncMask = 1;
       mirror.material.stencilFail = THREE.KeepStencilOp;
       mirror.material.stencilZFail = THREE.KeepStencilOp;
       mirror.material.stencilZPass = THREE.KeepStencilOp;

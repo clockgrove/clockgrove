@@ -796,6 +796,50 @@ it.each(["webgpu", "webgl2"])(
               sprite: [sprite.opacity, sprite.alphaHash],
               text: text(),
             };
+            // Behind a tree: the post and, nearer still, the canopy both cover the marker. The canopy
+            // fades, the post never changes, and the silhouette draws only inside the post's own
+            // pixels, never over the canopy's surviving pixels or the yard around them.
+            f.setModelAnchor(0.5, -0.5);
+            f.setContentAnchor(0.6, -0.6);
+            await until(
+              () =>
+                adapter.metrics.occlusion.silhouette === 0.35 &&
+                adapter.metrics.occlusion.faded === 1,
+            );
+            const tree = await capture();
+            silhouette().visible = false;
+            const treeWithoutSilhouette = await capture();
+            f.diagnostics.model.visible = false;
+            const treeWithoutPost = await capture();
+            f.diagnostics.model.visible = true;
+            await until(() => adapter.metrics.occlusion.silhouette === 0.35 && !!silhouette());
+            let drawn = 0;
+            let outsidePost = 0;
+            for (let at = 0; at < tree.length; at += 4) {
+              const differs = (a, b) =>
+                Math.abs(a[at] - b[at]) +
+                  Math.abs(a[at + 1] - b[at + 1]) +
+                  Math.abs(a[at + 2] - b[at + 2]) >
+                6;
+              if (!differs(tree, treeWithoutSilhouette)) continue;
+              drawn++;
+              if (!differs(treeWithoutSilhouette, treeWithoutPost)) outsidePost++;
+            }
+            // Standing still re-tests nothing: the rays run again only when something moves.
+            const tests = adapter.metrics.occlusion.rayTests;
+            for (let i = 0; i < 5; i++) await frame();
+            const both = {
+              behind: adapter.metrics.occlusion.behind,
+              faded: adapter.metrics.occlusion.faded,
+              drawn,
+              outsidePost,
+              post: [model.opacity, model.alphaHash],
+              sprite: [sprite.opacity, sprite.alphaHash],
+              stillTests: adapter.metrics.occlusion.rayTests - tests,
+            };
+            f.setModelAnchor(-2, -2);
+            f.setContentAnchor(0.5, -0.5);
+            await until(() => adapter.metrics.occlusion.silhouette === 0);
             // Walking out of cover ends the reveal and restores the canopy.
             f.moveMarker(2, -2);
             await until(() => !adapter.metrics.occlusion.revealed);
@@ -814,7 +858,7 @@ it.each(["webgpu", "webgl2"])(
             f.select(undefined);
             f.moveMarker(0, 0);
             f.setContentAnchor(0, 0);
-            return { tier, depthHidden, unselected, early, post, canopy, out };
+            return { tier, depthHidden, unselected, early, post, canopy, both, out };
           }, tier),
         );
       for (const row of occlusion) {
@@ -834,6 +878,16 @@ it.each(["webgpu", "webgl2"])(
         expect(row.canopy.sprite, row.tier).toEqual([0.25, true]);
         expect(row.canopy.seenThrough, row.tier).toBeGreaterThan(20);
         expect(row.canopy.text, row.tier).toBe("Projected marker is behind the fixture canopy.");
+        expect(["the fixture post", "the fixture canopy"], row.tier).toContain(row.both.behind);
+        expect(row.both.faded, row.tier).toBe(1);
+        expect(row.both.drawn, row.tier).toBeGreaterThan(20);
+        // Edge pixels may blend; a silhouette over the canopy would add hundreds outside the post.
+        expect(row.both.outsidePost, row.tier).toBeLessThanOrEqual(
+          Math.max(4, row.both.drawn * 0.05),
+        );
+        expect(row.both.post, row.tier).toEqual([1, false]);
+        expect(row.both.sprite, row.tier).toEqual([0.25, true]);
+        expect(row.both.stillTests, row.tier).toBe(0);
         expect(row.out, row.tier).toEqual({
           revealed: false,
           faded: 0,

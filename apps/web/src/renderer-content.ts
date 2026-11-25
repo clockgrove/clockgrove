@@ -600,15 +600,20 @@ function validContacts(contacts: RendererContentInstance["contacts"]): boolean {
   );
 }
 
+/** #266: the occluders' meshes hold at most this many triangles in all; the reveal's rays walk them. */
+export const OCCLUDER_TRIANGLES = 65_536;
 /**
- * #266: at most 64 occluders, each an object inside the content root with a plain-text label, and
- * no material shared between a fade and a solid occluder, so fading a canopy never fades a trunk.
+ * #266: at most 64 occluders, each an object inside the content root with a plain-text label, with
+ * at most `OCCLUDER_TRIANGLES` triangles in all, and no fade occluder's material drawn by a mesh
+ * outside the fade occluders, so fading a canopy never fades a trunk or anything undeclared.
  */
 function validOccluders(instance: RendererContentInstance): boolean {
   const occluders = instance.occluders;
   if (occluders === undefined) return true;
   if (!Array.isArray(occluders) || occluders.length > 64) return false;
   const kinds = new Map<THREE.Material, "fade" | "solid">();
+  const fading = new Set<THREE.Object3D>();
+  let triangles = 0;
   for (const occluder of Array.from(occluders)) {
     if (
       !occluder ||
@@ -628,13 +633,24 @@ function validOccluders(instance: RendererContentInstance): boolean {
     let shared = false;
     occluder.object.traverse((child: THREE.Object3D) => {
       if (!(child instanceof THREE.Mesh)) return;
+      if (occluder.kind === "fade") fading.add(child);
+      const geometry: THREE.BufferGeometry | undefined = child.geometry;
+      const vertices = geometry?.index?.count ?? geometry?.getAttribute?.("position")?.count ?? 0;
+      triangles += Math.ceil(vertices / 3);
       for (const material of Array.isArray(child.material) ? child.material : [child.material]) {
         const kind = kinds.get(material);
         if (kind !== undefined && kind !== occluder.kind) shared = true;
         kinds.set(material, occluder.kind);
       }
     });
-    if (shared) return false;
+    if (shared || triangles > OCCLUDER_TRIANGLES) return false;
   }
-  return true;
+  if (!Array.from(kinds.values()).includes("fade")) return true;
+  let outside = false;
+  instance.root.traverse((child: THREE.Object3D) => {
+    if (outside || !(child instanceof THREE.Mesh) || fading.has(child)) return;
+    for (const material of Array.isArray(child.material) ? child.material : [child.material])
+      if (kinds.get(material) === "fade") outside = true;
+  });
+  return !outside;
 }

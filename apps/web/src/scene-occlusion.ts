@@ -2,7 +2,7 @@ import type { ObjectId } from "@clockgrove/contracts";
 import { float, texture, uniform, uv } from "three/tsl";
 import * as THREE from "three/webgpu";
 import type { RendererContentOccluder } from "./renderer-content.js";
-import type { SceneOcclusionReveal } from "./world-scene-adapter.js";
+import { INTERPOLATION_MS, type SceneOcclusionReveal } from "./world-scene-adapter.js";
 
 /**
  * #266: the occlusion policy. Occlusion is depth-true for every body; only the selected body is
@@ -18,6 +18,64 @@ export const OCCLUSION = {
   fadedOpacity: 0.25,
   silhouetteOpacity: 0.35,
 } as const;
+/**
+ * The stencil bit the silhouette tests. Solid occluders set it where they draw while a silhouette
+ * shows; bodies and faded occluders clear it where they draw nearer, so the silhouette shows only
+ * through a solid occluder's own pixels. The puddle reflection owns bit 1.
+ */
+export const SILHOUETTE_STENCIL = 2;
+interface Stencil {
+  stencilWrite: boolean;
+  stencilRef: number;
+  stencilWriteMask: number;
+  stencilFunc: THREE.StencilFunc;
+  stencilFail: THREE.StencilOp;
+  stencilZFail: THREE.StencilOp;
+  stencilZPass: THREE.StencilOp;
+}
+function saveStencil(material: THREE.Material): Stencil {
+  const {
+    stencilWrite,
+    stencilRef,
+    stencilWriteMask,
+    stencilFunc,
+    stencilFail,
+    stencilZFail,
+    stencilZPass,
+  } = material;
+  return {
+    stencilWrite,
+    stencilRef,
+    stencilWriteMask,
+    stencilFunc,
+    stencilFail,
+    stencilZFail,
+    stencilZPass,
+  };
+}
+/** Where `material` draws nearest, set (`value` = the bit) or clear (0) the silhouette bit only. */
+function writeSilhouetteBit(material: THREE.Material, value: 0 | typeof SILHOUETTE_STENCIL): void {
+  Object.assign(material, {
+    stencilWrite: true,
+    stencilRef: value,
+    stencilWriteMask: SILHOUETTE_STENCIL,
+    stencilFunc: THREE.AlwaysStencilFunc,
+    stencilFail: THREE.KeepStencilOp,
+    stencilZFail: THREE.KeepStencilOp,
+    stencilZPass: THREE.ReplaceStencilOp,
+  } satisfies Stencil);
+}
+/** A body clears the silhouette bit where it draws, so a character in front hides the silhouette. */
+export function clearsSilhouette(material: THREE.Material): void {
+  if (
+    material.stencilWrite &&
+    material.stencilRef === 0 &&
+    material.stencilWriteMask === SILHOUETTE_STENCIL &&
+    material.stencilZPass === THREE.ReplaceStencilOp
+  )
+    return;
+  writeSilhouetteBit(material, 0);
+}
 export interface OcclusionMetrics {
   /** Whether the selected body is behind occluders now, before any dwell. */
   hidden: boolean;
@@ -28,13 +86,21 @@ export interface OcclusionMetrics {
   faded: number;
   /** The silhouette's current opacity; zero when none is drawn. */
   silhouette: number;
+  /** Frames whose ray test ran; a frame where nothing moved reuses the last one. */
+  rayTests: number;
 }
 interface Fade {
   level: number;
-  readonly materials: Map<
-    THREE.Material,
-    { opacity: number; alphaTest: number; alphaHash: boolean }
-  >;
+  readonly materials: ReadonlySet<THREE.Material>;
+}
+/** One saved original per material, however many fade occluders share it. */
+interface FadedMaterial {
+  readonly opacity: number;
+  readonly alphaTest: number;
+  readonly alphaHash: boolean;
+  readonly stencil: Stencil;
+  users: number;
+  level: number;
 }
 type Body = THREE.Object3D & {
   readonly geometry: THREE.BufferGeometry;
@@ -57,11 +123,21 @@ export class SceneOcclusion {
     behind: undefined,
     faded: 0,
     silhouette: 0,
+    rayTests: 0,
   };
   private readonly raycaster = new THREE.Raycaster();
   private readonly hits: THREE.Intersection[] = [];
   private readonly point = new THREE.Vector3();
+  private readonly origin = new THREE.Vector3();
   private readonly fades = new Map<THREE.Object3D, Fade>();
+  private readonly faded = new Map<THREE.Material, FadedMaterial>();
+  /** Solid occluders' materials marking the silhouette bit, with their own stencil state. */
+  private readonly marked = new Map<THREE.Material, Stencil>();
+  private readonly visible: RendererContentOccluder[] = [];
+  private readonly covered: RendererContentOccluder[][] = SAMPLE_UV.map(() => []);
+  /** What the last ray test saw: it runs again only when one of these changes. */
+  private readonly key: unknown[] = [];
+  private readonly nextKey: unknown[] = [];
   private readonly handlers = new Set<(reveal: SceneOcclusionReveal | undefined) => void>();
   private readonly silhouetteOpacity = uniform(0);
   private readonly silhouetteMap = texture(new THREE.Texture());
@@ -93,14 +169,16 @@ export class SceneOcclusion {
     readonly now: number;
   }): boolean {
     const { body, occluders, now } = frame;
-    const step = frame.reducedMotion || this.last === undefined ? 1 : (now - this.last) / 400;
+    const step =
+      frame.reducedMotion || this.last === undefined ? 1 : (now - this.last) / INTERPOLATION_MS;
     this.last = now;
     if (frame.objectId !== this.objectId) {
       this.objectId = frame.objectId;
       this.hiddenSince = undefined;
       this.metrics.revealed = false;
     }
-    const covered = body && occluders.length > 0 ? this.cover(body, frame.camera, occluders) : [];
+    const covered =
+      body && occluders.length > 0 ? this.cover(body, frame.camera, occluders) : this.clear();
     const hidden = covered.filter((sample) => sample.length > 0).length >= OCCLUSION.hiddenSamples;
     this.metrics.hidden = hidden;
     if (!hidden) this.hiddenSince = undefined;
@@ -136,14 +214,16 @@ export class SceneOcclusion {
     }
     let changed = this.easeFades(fadeTargets, step);
     changed = this.easeSilhouette(frame.scene, body, this.solid, step) || changed;
+    if (this.silhouette) this.mark(occluders);
     return changed;
   }
 
   /** Content went or the scene is retiring: restore every faded material and drop the silhouette. */
   reset(): void {
-    for (const [object, fade] of this.fades) this.restore(object, fade);
+    for (const fade of this.fades.values()) this.restore(fade);
     this.fades.clear();
     this.retireSilhouette();
+    this.clear();
     this.objectId = undefined;
     this.hiddenSince = undefined;
     Object.assign(this.metrics, {
@@ -164,25 +244,59 @@ export class SceneOcclusion {
     this.handlers.clear();
   }
 
-  /** For each sample point on the body's quad, the visible occluders between it and the camera. */
+  private clear(): RendererContentOccluder[][] {
+    for (const sample of this.covered) sample.length = 0;
+    this.key.length = 0;
+    return this.covered;
+  }
+
+  /**
+   * For each sample point on the body's quad, the visible occluders between it and the camera. The
+   * rays walk the occluders' triangles (bounded by the content contract), so they run again only
+   * when the body, the camera, or an occluder's meshes, bones, geometry or visibility change.
+   */
   private cover(
     body: Body,
     camera: THREE.OrthographicCamera,
     occluders: readonly RendererContentOccluder[],
   ): RendererContentOccluder[][] {
     body.updateWorldMatrix(true, false);
+    const visible = this.visible;
+    visible.length = 0;
+    for (const occluder of occluders) {
+      let shown = true;
+      for (let object: THREE.Object3D | null = occluder.object; object; object = object.parent)
+        if (!object.visible) shown = false;
+      if (!shown) continue;
+      // Content may have moved an anchor above the occluder since the last render.
+      occluder.object.updateWorldMatrix(true, true);
+      visible.push(occluder);
+    }
+    const key = this.nextKey;
+    key.length = 0;
+    key.push(body, body.geometry, camera, camera.zoom, camera.left, camera.right, camera.top);
+    key.push(camera.bottom, ...body.matrixWorld.elements, ...camera.matrixWorld.elements);
+    for (const occluder of visible) {
+      key.push(occluder);
+      occluder.object.traverseVisible((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        key.push(child, child.geometry, ...child.matrixWorld.elements);
+        if (child instanceof THREE.SkinnedMesh)
+          for (const bone of child.skeleton.bones) key.push(...bone.matrixWorld.elements);
+      });
+    }
+    if (key.length === this.key.length && key.every((value, at) => value === this.key[at]))
+      return this.covered;
+    this.key.length = 0;
+    this.key.push(...key);
+    this.metrics.rayTests += 1;
     const geometry = body.geometry;
     if (!geometry.boundingBox) geometry.computeBoundingBox();
     const box = geometry.boundingBox!;
-    const visible = occluders.filter((occluder) => {
-      for (let object: THREE.Object3D | null = occluder.object; object; object = object.parent)
-        if (!object.visible) return false;
-      return true;
-    });
-    // Content may have moved an anchor above the occluder since the last render.
-    for (const occluder of visible) occluder.object.updateWorldMatrix(true, true);
     const cameraZ = camera.position.z;
-    return SAMPLE_UV.map(([u, v]) => {
+    SAMPLE_UV.forEach(([u, v], index) => {
+      const sample = this.covered[index]!;
+      sample.length = 0;
       this.point
         .set(
           box.min.x + (box.max.x - box.min.x) * u,
@@ -191,33 +305,69 @@ export class SceneOcclusion {
         )
         .applyMatrix4(body.matrixWorld);
       // An orthographic camera looking down -z: every view ray is parallel to it.
-      this.raycaster.set(this.point.clone().setZ(cameraZ), TOWARD_SCENE);
+      this.raycaster.set(this.origin.copy(this.point).setZ(cameraZ), TOWARD_SCENE);
       this.raycaster.near = 0;
       this.raycaster.far = Math.max(0, cameraZ - this.point.z - 1);
-      return visible.filter((occluder) => {
+      for (const occluder of visible) {
         this.hits.length = 0;
         this.raycaster.intersectObject(occluder.object, true, this.hits);
-        return this.hits.length > 0;
-      });
+        if (this.hits.length > 0) sample.push(occluder);
+      }
     });
+    this.hits.length = 0;
+    return this.covered;
+  }
+
+  /** While a silhouette shows, every solid occluder's material sets the silhouette bit. */
+  private mark(occluders: readonly RendererContentOccluder[]): void {
+    for (const occluder of occluders)
+      if (occluder.kind === "solid")
+        occluder.object.traverse((child) => {
+          if (!(child instanceof THREE.Mesh)) return;
+          for (const material of Array.isArray(child.material) ? child.material : [child.material])
+            if (material instanceof THREE.Material && !this.marked.has(material)) {
+              this.marked.set(material, saveStencil(material));
+              writeSilhouetteBit(material, SILHOUETTE_STENCIL);
+              material.needsUpdate = true;
+            }
+        });
+  }
+
+  private unmark(): void {
+    for (const [material, stencil] of this.marked) {
+      Object.assign(material, stencil);
+      material.needsUpdate = true;
+    }
+    this.marked.clear();
   }
 
   private easeFades(targets: ReadonlySet<THREE.Object3D>, step: number): boolean {
     let changed = false;
     for (const object of targets)
       if (!this.fades.has(object)) {
-        const materials: Fade["materials"] = new Map();
+        const materials = new Set<THREE.Material>();
         object.traverse((child) => {
           if (!(child instanceof THREE.Mesh)) return;
           for (const material of Array.isArray(child.material) ? child.material : [child.material])
             if (material instanceof THREE.Material && !materials.has(material)) {
-              materials.set(material, {
+              materials.add(material);
+              const saved = this.faded.get(material);
+              if (saved) {
+                saved.users += 1;
+                continue;
+              }
+              this.faded.set(material, {
                 opacity: material.opacity,
                 alphaTest: material.alphaTest,
                 alphaHash: material.alphaHash,
+                stencil: saveStencil(material),
+                users: 1,
+                level: 1,
               });
               // Alpha hashing keeps depth testing and writing on, so the faded set still sorts with the cast.
               material.alphaHash = true;
+              // Its surviving pixels hide the silhouette, as any nearer surface does.
+              writeSilhouetteBit(material, 0);
               material.needsUpdate = true;
             }
         });
@@ -233,26 +383,37 @@ export class SceneOcclusion {
       if (level !== fade.level) changed = true;
       fade.level = level;
       if (level >= 1 && target === 1) {
-        this.restore(object, fade);
+        this.restore(fade);
         this.fades.delete(object);
         changed = true;
-        continue;
       }
-      // Alpha test scales with opacity so a cut-out keeps its shape while it fades.
-      for (const [material, original] of fade.materials) {
-        material.opacity = original.opacity * level;
-        if (original.alphaTest > 0) material.alphaTest = original.alphaTest * level;
+    }
+    // A material shared by several fading occluders takes the faintest of their levels.
+    for (const saved of this.faded.values()) saved.level = 1;
+    for (const fade of this.fades.values())
+      for (const material of fade.materials) {
+        const saved = this.faded.get(material)!;
+        saved.level = Math.min(saved.level, fade.level);
       }
+    // Alpha test scales with opacity so a cut-out keeps its shape while it fades.
+    for (const [material, saved] of this.faded) {
+      material.opacity = saved.opacity * saved.level;
+      if (saved.alphaTest > 0) material.alphaTest = saved.alphaTest * saved.level;
     }
     this.metrics.faded = this.fades.size;
     return changed;
   }
 
-  private restore(_object: THREE.Object3D, fade: Fade): void {
-    for (const [material, original] of fade.materials) {
-      material.opacity = original.opacity;
-      material.alphaTest = original.alphaTest;
-      material.alphaHash = original.alphaHash;
+  /** The last fade using a material puts back its one saved original. */
+  private restore(fade: Fade): void {
+    for (const material of fade.materials) {
+      const saved = this.faded.get(material);
+      if (!saved || --saved.users > 0) continue;
+      this.faded.delete(material);
+      material.opacity = saved.opacity;
+      material.alphaTest = saved.alphaTest;
+      material.alphaHash = saved.alphaHash;
+      Object.assign(material, saved.stencil);
       material.needsUpdate = true;
     }
   }
@@ -273,8 +434,20 @@ export class SceneOcclusion {
         fog: false,
         toneMapped: false,
       });
-      // Drawn only where something nearer than the body covers it.
+      // Drawn only where something nearer than the body covers it, and only where the nearest
+      // surface is a solid occluder's (the silhouette bit), never over a faded canopy's surviving
+      // pixels or a character in front.
       material.depthFunc = THREE.GreaterDepth;
+      Object.assign(material, {
+        stencilWrite: true,
+        stencilRef: SILHOUETTE_STENCIL,
+        stencilFuncMask: SILHOUETTE_STENCIL,
+        stencilWriteMask: 0,
+        stencilFunc: THREE.EqualStencilFunc,
+        stencilFail: THREE.KeepStencilOp,
+        stencilZFail: THREE.KeepStencilOp,
+        stencilZPass: THREE.KeepStencilOp,
+      });
       const map = bodyMap(body);
       if (map) this.silhouetteMap.value = map;
       material.opacityNode = map
@@ -313,6 +486,7 @@ export class SceneOcclusion {
   }
 
   private retireSilhouette(): void {
+    this.unmark();
     if (!this.silhouette) return;
     this.silhouette.removeFromParent();
     this.silhouette.material.dispose();

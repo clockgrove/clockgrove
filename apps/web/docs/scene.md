@@ -487,13 +487,19 @@ The content instance's optional `occluders` array is the world presentation data
 `{ object, kind, label }`. `object` is an object inside the content root. `kind: "fade"` marks content
 that may fade (canopies, roofs). `kind: "solid"` marks content that never changes (trunks, posts,
 walls). `label` is plain text of 1 to 80 characters that reads after "behind", for example
-"the cedar". At most 64 are accepted, and a fade occluder may not share a material with a solid
-one. They are revalidated on every update like `lights` and `contacts`. Invalid descriptors fail
+"the cedar". At most 64 are accepted, holding at most 65,536 triangles in all
+(`OCCLUDER_TRIANGLES`), and no mesh outside the fade occluders may draw with a fade occluder's
+material, so fading a canopy never fades a trunk or undeclared content. Two fade occluders may share
+a material: it keeps one saved original and returns to it when the last of them is restored. They
+are revalidated once per update like `lights` and `contacts`. Invalid descriptors fail
 `content_contract`. Content without `occluders` is never faded and never reveals anyone.
 
 Each frame, `scene-occlusion.ts` tests the selected body only. Five sample points on its drawn quad
 (the centre and the quarter points) cast rays from the camera against the visible occluders'
-geometry on the CPU. The body is hidden when three or more are covered. Alpha maps, `depthNode`
+geometry on the CPU. The body is hidden when three or more are covered. The rays walk the
+occluders' triangles (bone-transformed for a skinned mesh), so they run again only on a frame where
+the body, the camera, or an occluder's meshes, bones, geometry or visibility changed; a frame where
+nothing moved reuses the last answer (`metrics.occlusion.rayTests` counts the frames that tested). Alpha maps, `depthNode`
 maps and `positionNode` deformation run only on the GPU, so a quad's transparent corners count as
 cover. After a 500 ms dwell the reveal starts:
 
@@ -501,7 +507,11 @@ cover. After a 500 ms dwell the reveal starts:
   and writing on, so the faded set still satisfies the content material contract and sorts with
   the cast (their alpha test scales with the opacity, so a cut-out keeps its shape);
 - when a solid occluder covers the body, a faint silhouette shows: the body's shape in the scene
-  accent at 0.35 opacity, drawn only where something nearer covers it (depth test `GreaterDepth`);
+  accent at 0.35 opacity, drawn only where something nearer covers it (depth test `GreaterDepth`)
+  and that nearest surface is a solid occluder's. While it shows, solid occluders set stencil bit 2
+  (`SILHOUETTE_STENCIL`) where they draw, and every body and faded occluder clears it where it
+  draws, so the silhouette never shows over a faded canopy's surviving pixels or a character in
+  front. The puddle reflection keeps stencil bit 1;
 - solid occluders never change.
 
 Both ease over 400 ms (`INTERPOLATION_MS`), instantly under reduced motion. They ease back when the
@@ -510,7 +520,7 @@ first, and a reveal still due starts again after its dwell. `onOcclusion(handler
 `{ objectId, behind }` when a reveal starts or its main occluder changes, and `undefined` when it
 ends. `behind` is the label of the occluder covering most samples. The shell's text path shows
 `occlusionText(label, behind)` ("Ada is behind the cedar.") under the entities heading while a
-reveal lasts. `metrics.occlusion` reports `hidden`, `revealed`, `behind`, `faded` and `silhouette`.
+reveal lasts. `metrics.occlusion` reports `hidden`, `revealed`, `behind`, `faded`, `silhouette` and `rayTests`.
 The reveal costs the same on every tier (`occlusionReveal` in `scene-budgets.json`). The fixture
 opts in with `?occlusion`: its model is a solid occluder ("the fixture post") and its sprite a fade
 occluder ("the fixture canopy").
