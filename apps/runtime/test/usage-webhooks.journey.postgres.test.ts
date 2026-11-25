@@ -195,6 +195,21 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(await sweep()).toEqual({ delivered: 0, failed: 0 });
       expect(posts).toHaveLength(1);
 
+      // Usage arrives before the retry: the retry is still the same message, the refused post's
+      // events only, and the new usage follows in a post of its own.
+      await owner.request(
+        "/v1/runtime/talk",
+        { version: 1, ...owner.scope, sessionId: session, messageId: "m1c", text: "Still there?" },
+        MEMBER,
+      );
+      const between = (
+        await owner.sql(
+          `SELECT string_agg(sequence::text, ',' ORDER BY sequence) FROM clockgrove.usage_events
+            WHERE sequence > ${sequences[1]}`,
+        )
+      ).split(",");
+      expect(between).toHaveLength(2);
+
       // Due again, it re-sends the same events under the same message ID, and the signature verifies.
       await owner.sql(
         "UPDATE clockgrove.usage_webhooks SET next_attempt_at = now() - interval '1 second'",
@@ -216,12 +231,18 @@ it.skipIf(!isNativeWorldOwnerChild())(
       ]);
       expect(body.events[0]?.eventId).toMatch(/^run_step:.+:2$/u);
       expect(await state()).toBe(`0,delivered,${sequences[1]},true`);
+      expect(await sweep()).toEqual({ delivered: 1, failed: 0 });
+      expect(posts[2]?.headers["webhook-id"]).toBe(`${webhookId}:${between[0]}:${between[1]}`);
+      expect(
+        (JSON.parse(posts[2]?.body ?? "") as UsageWebhookBody).events.map((e) => e.sequence),
+      ).toEqual(between);
+      expect(await state()).toBe(`0,delivered,${between[1]},true`);
 
       // Nothing is left to send, so the webhook is not listed and a delivered event is never
       // posted again.
       expect(await listed()).toEqual([]);
       expect(await sweep()).toEqual({ delivered: 0, failed: 0 });
-      expect(posts).toHaveLength(2);
+      expect(posts).toHaveLength(3);
 
       // A webhook that is behind is drained in one sweep, a page at a time, not a page per cron run.
       await owner.request(
@@ -232,12 +253,12 @@ it.skipIf(!isNativeWorldOwnerChild())(
       const later = (
         await owner.sql(
           `SELECT string_agg(sequence::text, ',' ORDER BY sequence) FROM clockgrove.usage_events
-            WHERE sequence > ${sequences[1]}`,
+            WHERE sequence > ${between[1]}`,
         )
       ).split(",");
       expect(later).toHaveLength(2);
       expect(await sweep(1)).toEqual({ delivered: 2, failed: 0 });
-      expect(posts.slice(2).map((post) => post.headers["webhook-id"])).toEqual(
+      expect(posts.slice(3).map((post) => post.headers["webhook-id"])).toEqual(
         later.map((sequence) => `${webhookId}:${sequence}:${sequence}`),
       );
       expect(await state()).toBe(`0,delivered,${later[1]},true`);
@@ -261,15 +282,32 @@ it.skipIf(!isNativeWorldOwnerChild())(
       // as not due rather than failing.
       await owner.sql("UPDATE clockgrove.usage_webhooks SET lease_until = NULL");
       expect(await sweep()).toEqual({ delivered: 0, failed: 0 });
-      expect(posts).toHaveLength(5);
-      expect(
-        await withClient(owner.fixture.environment, (client) =>
+      expect(posts).toHaveLength(6);
+      const claim = () =>
+        withClient(owner.fixture.environment, (client) =>
           new PostgreSqlUsageWebhooks(client).claim(
             { ...owner.scope, principalId: "principal-outsider" },
             1_000,
           ),
-        ),
-      ).toBeNull();
+        );
+      expect(await claim()).toBeNull();
+
+      // With the grant back the webhook is due again; its registrar's membership then loses the
+      // `operator_evidence` ceiling after the due listing, and the claim is refused as not due.
+      await owner.sql(
+        `UPDATE clockgrove.world_memberships
+            SET grants = array_append(grants, 'runtime:usage-webhook')
+          WHERE principal_id = 'principal-outsider'`,
+      );
+      expect(await listed()).toHaveLength(1);
+      await owner.sql(
+        `UPDATE clockgrove.world_memberships
+            SET privacy_ceiling = '{"version":1,"allowedCategories":["public_scene"]}'
+          WHERE principal_id = 'principal-outsider'`,
+      );
+      expect(await claim()).toBeNull();
+      expect(await state()).toBe(`0,delivered,${later[1]},true`);
+      expect(await listed()).toEqual([]);
     });
   },
   180_000,

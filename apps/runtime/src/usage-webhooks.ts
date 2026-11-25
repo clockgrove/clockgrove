@@ -65,7 +65,14 @@ export async function sweepUsageWebhooks(
     try {
       const claimed = await webhooks.claim(key, LEASE_MS);
       if (claimed === null) continue;
-      const events = await webhooks.pending(key, claimed.deliveredThrough, pageSize);
+      // A retry re-sends exactly the refused post's events, so it is the same message (the same
+      // `webhook-id` and body) even when usage arrived in between.
+      const events = await webhooks.pending(
+        key,
+        claimed.deliveredThrough,
+        pageSize,
+        claimed.retryThrough,
+      );
       const first = events[0];
       const last = events[events.length - 1];
       if (first === undefined || last === undefined) {
@@ -89,7 +96,7 @@ export async function sweepUsageWebhooks(
         key,
         status === "ok"
           ? { delivered: true, through: last.sequence }
-          : { delivered: false, status },
+          : { delivered: false, status, through: last.sequence },
       );
       if (status === "ok" && events.length === pageSize) turns.push(key);
     } catch (error) {

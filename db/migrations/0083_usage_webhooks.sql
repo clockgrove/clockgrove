@@ -17,6 +17,10 @@ CREATE TABLE clockgrove.usage_webhooks (
   -- registering (or enabling a disabled one) sets it to the space's newest usage event, so a new
   -- webhook posts only usage from then on and earlier usage is left to the query.
   delivered_through bigint NOT NULL DEFAULT 0 CHECK (delivered_through >= 0),
+  -- After a refused post, the last sequence it carried: the retry re-sends exactly the events
+  -- after the cursor up to this one, so it is the same message under the same `webhook-id`, even
+  -- when usage arrived in between. NULL when no post is waiting for a retry.
+  retry_through bigint CHECK (retry_through > delivered_through),
   attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
   next_attempt_at timestamptz NOT NULL DEFAULT statement_timestamp(),
   -- A sweep that claimed the webhook holds it until then, so two sweeps never post at once.
@@ -44,9 +48,9 @@ CREATE INDEX usage_events_space_feed
 -- reader's grant and ceiling. As in 0046's `mcp_install_authorized`, an actor or `system:`
 -- identity never qualifies, even with the explicit grant. `runtime:world-operate` alone is not
 -- enough. Disabling (a NULL URL) needs only the reader's. The sweep's lease, cursor and retry
--- updates keep the URL, so they too need `runtime:usage-webhook`: the due listing skips a
--- registrar who lost it, and one who loses it after the listing has the claim or settle refused,
--- which the sweep reads as not due.
+-- updates keep the URL, so they too need `runtime:usage-webhook` and the membership's
+-- `operator_evidence` ceiling: the due listing skips a registrar who lost either, and one who
+-- loses either after the listing has the claim or settle refused, which the sweep reads as not due.
 CREATE FUNCTION clockgrove.usage_webhook_authority(roles text[], grants text[], p text)
 RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = pg_catalog AS $$
   SELECT NOT 'actor' = ANY(roles) AND left(p, 7) <> 'system:'
@@ -59,7 +63,11 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalo
     SELECT 1 FROM clockgrove.world_memberships m
      WHERE m.tenant_id = t AND m.world_id = w AND m.timeline_id = tl AND m.space_id = s
        AND m.principal_id = clockgrove.runtime_principal_id() AND m.revoked_at IS NULL
-       AND clockgrove.usage_webhook_authority(m.roles, m.grants, m.principal_id))
+       AND clockgrove.usage_webhook_authority(m.roles, m.grants, m.principal_id)
+       -- The membership's own ceiling, not only the one the sweep installs as the registrar's: a
+       -- registrar whose ceiling lost `operator_evidence` after the due listing has the next
+       -- claim refused, as one who lost the grant.
+       AND m.privacy_ceiling->'allowedCategories' ? 'operator_evidence')
 $$;
 REVOKE ALL ON FUNCTION clockgrove.runtime_usage_webhook_registrar(text, text, text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION clockgrove.runtime_usage_webhook_registrar(text, text, text, text)
@@ -85,8 +93,8 @@ CREATE POLICY usage_webhooks_registrar_update ON clockgrove.usage_webhooks FOR U
        OR clockgrove.runtime_usage_webhook_registrar(tenant_id, world_id, timeline_id, space_id)));
 REVOKE ALL ON clockgrove.usage_webhooks FROM PUBLIC;
 GRANT SELECT, INSERT ON clockgrove.usage_webhooks TO clockgrove_runtime;
-GRANT UPDATE (url, delivered_through, attempts, next_attempt_at, lease_until, last_status,
-  updated_at) ON clockgrove.usage_webhooks TO clockgrove_runtime;
+GRANT UPDATE (url, delivered_through, retry_through, attempts, next_attempt_at, lease_until,
+  last_status, updated_at) ON clockgrove.usage_webhooks TO clockgrove_runtime;
 CREATE TRIGGER usage_webhooks_no_delete BEFORE DELETE ON clockgrove.usage_webhooks
   FOR EACH ROW EXECUTE FUNCTION clockgrove.reject_journal_mutation();
 CREATE TRIGGER usage_webhooks_no_truncate BEFORE TRUNCATE ON clockgrove.usage_webhooks

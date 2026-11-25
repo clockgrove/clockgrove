@@ -158,10 +158,13 @@ address, single label, or `localhost`, `.local`, `.internal`, `.home`, `.lan`, `
 its normalised form (`HTTPS://Billing.Example` is `https://billing.example/`), and any other is a
 400 `invalid_inspection_request`. A webhook posts only what its registrar may read, as the
 registrar: once they lose the inspect grant, `runtime:usage-webhook` (or, for an owner's default,
-the owner role) or the ceiling, it stops. Registering, replacing or disabling is audited as subject
+the owner role) or their membership's `operator_evidence` ceiling, it stops: the next run does not
+list it, and within a run the next post's claim is refused. Registering, replacing or disabling is audited as subject
 `usage-webhook`, its entry the URL's origin or `disabled` (never the path or query, which may carry
-the receiver's own credential), in the registration's own transaction, so a webhook never exists
-without its audit row; a registration that fails is audited `failed`, and a refused one as a
+the receiver's own credential), in the registration's own transaction, so no registration happens without its audit row. Audit
+rows are kept 90 days, as every inspector access (`db/retention.json`), while the webhook row is
+kept for the world's life: for a webhook registered earlier only its row's registrar, current URL
+and last update remain, not the earlier URLs it pointed at. A registration that fails is audited `failed`, and a refused one as a
 `usage-events` denial.
 
 The deployment sets `USAGE_WEBHOOK_SECRET`; without it the route answers 503 `inspector_unavailable` and nothing is posted.
@@ -184,9 +187,12 @@ signed per [Standard Webhooks](https://www.standardwebhooks.com/) (`webhook-id`,
 `webhook-timestamp`, `webhook-signature`), so the developer verifies it with any Standard Webhooks
 library and the signing secret, for example `new Webhook(secret).verify(body, headers)`.
 `webhook-id` is `<webhookId>:<first sequence>:<last sequence>`. A 2xx answer moves the cursor past
-the post; any other answer, no answer within 10 s, or a network failure keeps it, and the same
-events are due again after 2, 4, 8 … seconds, at most 300, and posted by the first cron run after
-that: at least once, in order, none skipped. A receiver dedupes on `eventId`, so a post delivered twice counts once.
+the post; any other answer, no answer within 10 s, or a network failure keeps it and records the
+post's last sequence, and the retry is the same message: exactly the same events, the same body and
+the same `webhook-id`, even when usage was recorded in between (that usage follows in later posts).
+It is due again after 2, 4, 8 … seconds, at most 300, and posted by the first cron run after that:
+at least once, in order, none skipped. A receiver dedupes on `eventId` (or on `webhook-id`, which a retry keeps), so a post delivered
+twice counts once.
 
 ## Not telemetry
 

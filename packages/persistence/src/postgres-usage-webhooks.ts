@@ -23,13 +23,18 @@ export interface ClaimedUsageWebhook {
   readonly url: string;
   /** The sequence of the last event already delivered. */
   readonly deliveredThrough: string;
+  /**
+   * After a refused post, the last sequence it carried: the retry re-sends exactly that range, so it
+   * is the same message under the same `webhook-id`. `null` when no post is waiting for a retry.
+   */
+  readonly retryThrough: string | null;
 }
 
 export type UsageWebhookOutcome =
   /** Every event up to `through` was delivered; `null` when there was none to send. */
   | { readonly delivered: true; readonly through: string | null }
-  /** `status` is `http_<code>`, `timeout` or `network`. */
-  | { readonly delivered: false; readonly status: string };
+  /** `status` is `http_<code>`, `timeout` or `network`; `through` is the refused post's last sequence. */
+  | { readonly delivered: false; readonly status: string; readonly through: string };
 
 /** The sweep acts as the registrar: row-level security then holds it to what they may read. */
 export function usageWebhookAuthorization(key: UsageWebhookKey): RuntimeAuthorizationContext {
@@ -52,7 +57,8 @@ export class PostgreSqlUsageWebhooks {
    * webhook, or a disabled one enabled again, starts its cursor at the space's newest usage event,
    * so it posts only usage from then on (earlier usage is the query's). The
    * `usage-webhook` audit row (`auditEntry`: the URL's origin or `disabled`) is written in the same
-   * transaction, so a standing export never exists without its audit row.
+   * transaction, so a registration never happens without its audit row. Audit rows are kept 90 days
+   * (`record_inspector_access`); the webhook row is kept for the world's life.
    */
   async register(
     authorization: RuntimeAuthorizationContext,
@@ -74,6 +80,9 @@ export class PostgreSqlUsageWebhooks {
                  WHEN usage_webhooks.url IS NULL AND excluded.url IS NOT NULL
                    THEN excluded.delivered_through
                  ELSE usage_webhooks.delivered_through END,
+               retry_through = CASE
+                 WHEN usage_webhooks.url IS NULL AND excluded.url IS NOT NULL THEN NULL
+                 ELSE usage_webhooks.retry_through END,
                attempts = 0, next_attempt_at = statement_timestamp(),
                last_status = NULL, updated_at = statement_timestamp()
          RETURNING webhook_id`,
@@ -115,7 +124,8 @@ export class PostgreSqlUsageWebhooks {
 
   /**
    * Takes the webhook for `leaseMs` unless another sweep holds it, it is not yet due, or its
-   * registrar lost `runtime:usage-webhook` since the due listing.
+   * registrar lost `runtime:usage-webhook` or the membership's `operator_evidence` ceiling since the
+   * due listing.
    */
   async claim(key: UsageWebhookKey, leaseMs: number): Promise<ClaimedUsageWebhook | null> {
     const found = await this.within(usageWebhookAuthorization(key), (query) =>
@@ -124,7 +134,8 @@ export class PostgreSqlUsageWebhooks {
             SET lease_until = statement_timestamp() + make_interval(secs => $6::double precision / 1000)
           WHERE ${KEY} AND url IS NOT NULL AND next_attempt_at <= statement_timestamp()
             AND (lease_until IS NULL OR lease_until <= statement_timestamp())
-        RETURNING webhook_id, url, delivered_through::text AS delivered_through`,
+        RETURNING webhook_id, url, delivered_through::text AS delivered_through,
+                  retry_through::text AS retry_through`,
         [...keyValues(key), leaseMs],
       ),
     ).catch(notDue);
@@ -135,14 +146,16 @@ export class PostgreSqlUsageWebhooks {
           webhookId: String(row.webhook_id),
           url: String(row.url),
           deliveredThrough: String(row.delivered_through),
+          retryThrough: nullable(row.retry_through),
         };
   }
 
-  /** The space's usage events after the cursor, in sequence order. */
+  /** The space's usage events after the cursor, up to `through` when set, in sequence order. */
   async pending(
     key: UsageWebhookKey,
     deliveredThrough: string,
     limit: number,
+    through: string | null = null,
   ): Promise<UsageEvent[]> {
     const rows = await this.within(usageWebhookAuthorization(key), (query) =>
       query(
@@ -153,9 +166,9 @@ export class PostgreSqlUsageWebhooks {
                 world_time::text AS world_time
            FROM clockgrove.usage_events
           WHERE tenant_id = $1 AND world_id = $2 AND timeline_id = $3 AND space_id = $4
-            AND sequence > $5::bigint
+            AND sequence > $5::bigint AND ($7::bigint IS NULL OR sequence <= $7::bigint)
           ORDER BY sequence LIMIT $6`,
-        [key.tenantId, key.worldId, key.timelineId, key.spaceId, deliveredThrough, limit],
+        [key.tenantId, key.worldId, key.timelineId, key.spaceId, deliveredThrough, limit, through],
       ),
     );
     return rows.map(eventOf);
@@ -163,8 +176,9 @@ export class PostgreSqlUsageWebhooks {
 
   /**
    * Records a delivery's end and releases the lease. A registrar who lost `runtime:usage-webhook`
-   * since the due listing changes nothing: the cursor stays and the lease runs out. Success moves the cursor and is due again at
-   * once; failure keeps the cursor and waits 2^attempts seconds, at most 300.
+   * or the `operator_evidence` ceiling since the due listing changes nothing: the cursor stays and
+   * the lease runs out. Success moves the cursor and is due again at once; failure keeps the cursor,
+   * records the refused post's last sequence for the retry and waits 2^attempts seconds, at most 300.
    */
   async settle(key: UsageWebhookKey, outcome: UsageWebhookOutcome): Promise<void> {
     const authorization = usageWebhookAuthorization(key);
@@ -172,7 +186,8 @@ export class PostgreSqlUsageWebhooks {
       outcome.delivered
         ? query(
             `UPDATE clockgrove.usage_webhooks
-                SET delivered_through = coalesce($6::bigint, delivered_through), attempts = 0,
+                SET delivered_through = coalesce($6::bigint, delivered_through),
+                    retry_through = NULL, attempts = 0,
                     next_attempt_at = statement_timestamp(), last_status = 'delivered',
                     lease_until = NULL, updated_at = statement_timestamp()
               WHERE ${KEY}`,
@@ -180,12 +195,12 @@ export class PostgreSqlUsageWebhooks {
           )
         : query(
             `UPDATE clockgrove.usage_webhooks
-                SET attempts = attempts + 1,
+                SET attempts = attempts + 1, retry_through = $7::bigint,
                     next_attempt_at = statement_timestamp()
                       + make_interval(secs => least(power(2, least(attempts + 1, 9)), 300)),
                     last_status = $6, lease_until = NULL, updated_at = statement_timestamp()
               WHERE ${KEY}`,
-            [...keyValues(key), outcome.status],
+            [...keyValues(key), outcome.status, outcome.through],
           ),
     ).catch(notDue);
   }
@@ -203,8 +218,8 @@ export class PostgreSqlUsageWebhooks {
 }
 
 /**
- * Row-level security refused the update (`42501`): the registrar lost `runtime:usage-webhook` after
- * the due listing, so the webhook is no longer due. It changes nothing, as an unlisted one would.
+ * Row-level security refused the update (`42501`): the registrar lost `runtime:usage-webhook` or
+ * the membership's `operator_evidence` ceiling after the due listing, so the webhook is no longer due. It changes nothing, as an unlisted one would.
  */
 function notDue(error: unknown): Row[] {
   if ((error as { code?: unknown }).code === "42501") return [];
