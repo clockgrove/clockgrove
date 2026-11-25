@@ -1,6 +1,7 @@
 import { MAX_RUN_SEARCH_PAGE, RUN_STATUSES } from "@clockgrove/contracts";
 import { fromJsonSchema, type JsonSchemaType, McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
+import { createParser } from "eventsource-parser";
 import { submitWorldMcpCommand, type WorldMcpApplication } from "./world-mcp-commands.js";
 import {
   operateWorldMcpTool,
@@ -294,13 +295,20 @@ export async function handleWorldMcpRequest(
     const headers = new Headers(response.headers);
     let result: Record<string, unknown>;
     if (headers.get("content-type")?.includes("text/event-stream")) {
-      // The legacy lane answers one finite event stream; return its single message as JSON.
-      const data = (await response.text())
-        .split(/\r?\n/u)
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trim());
-      if (data.length !== 1) return refusal(400, "mcp_request_refused");
-      result = JSON.parse(data[0]!) as Record<string, unknown>;
+      // The legacy lane answers one finite event stream; eventsource-parser reads it and
+      // its single JSON-RPC response (the message carrying an id) is returned as JSON.
+      const messages: Record<string, unknown>[] = [];
+      const parser = createParser({
+        onEvent: (event) => {
+          if (event.event === undefined || event.event === "message")
+            messages.push(JSON.parse(event.data) as Record<string, unknown>);
+        },
+      });
+      parser.feed(await response.text());
+      parser.reset({ consume: true });
+      const responses = messages.filter((message) => "id" in message);
+      if (responses.length !== 1) return refusal(400, "mcp_request_refused");
+      result = responses[0]!;
       headers.set("content-type", "application/json");
     } else result = (await response.json()) as Record<string, unknown>;
     if ("error" in result) {

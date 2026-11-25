@@ -448,7 +448,8 @@ async function asksOverMcp({ page: shell, url, credential, entry, mcp, token }) 
   );
   const anonymous = await fetch(mcp, { method: "POST", body: "{}" });
   expect(anonymous.status).toBe(401);
-  // The endpoint speaks the current stateless protocol and refuses the 2025-era handshake.
+  // The journey pins the current protocol; the 2025-era stateless legacy lane is proved in
+  // apps/runtime/test/world-mcp-public.postgres.test.ts.
   const client = new Client(
     { name: "playground-journey", version: "1.0.0" },
     { versionNegotiation: { mode: { pin: "2026-07-28" } } },

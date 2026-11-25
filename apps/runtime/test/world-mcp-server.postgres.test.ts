@@ -100,6 +100,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
         expect(
           await call("command_receipt", { schemaVersion: 1, ...owner.scope, commandId }),
         ).toEqual({ ok: false, status: 403, code: "authorization_refused" });
+        expect(await call("world_journal", { schemaVersion: 1, ...owner.scope })).toEqual({
+          ok: false,
+          status: 403,
+          code: "authorization_refused",
+        });
         await owner.sql(
           "UPDATE clockgrove.world_memberships SET grants=array_append(grants,'runtime:world-inspect')",
         );
