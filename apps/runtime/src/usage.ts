@@ -28,7 +28,7 @@ export const USAGE_WEBHOOK_GRANT = "runtime:usage-webhook";
 /**
  * Whether the caller may point the space's usage at an outside host: `runtime:usage-webhook`,
  * which a world's owner holds by default and may delegate, as `runtime:mcp-install` (the owner's
- * decision of 2026-11-25). An actor or system identity never qualifies, even with the grant; 0078's
+ * decision of 2026-11-25). An actor or system identity never qualifies, even with the grant; 0079's
  * `runtime_usage_webhook_registrar` applies the same rule in the database.
  */
 export function holdsUsageWebhookGrant(context: TrustedExecutionContext): boolean {

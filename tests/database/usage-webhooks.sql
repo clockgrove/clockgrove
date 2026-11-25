@@ -1,4 +1,4 @@
--- Usage webhooks (0078), with a real row: a webhook is its registrar's alone, and only while the
+-- Usage webhooks (0079), with a real row: a webhook is its registrar's alone, and only while the
 -- registrar reads the space's usage (the inspect grant and the `operator_evidence` ceiling) and
 -- holds `runtime:usage-webhook` (needed to point it at a host), which the world's owner holds by
 -- default. Another tenant, a member without the grant, the registrar under a ceiling without

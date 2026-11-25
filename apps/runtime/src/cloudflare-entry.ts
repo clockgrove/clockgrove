@@ -605,7 +605,7 @@ export function composeUsageInspector(
   };
 }
 
-/** Registers signed usage webhooks (0078); absent without `USAGE_WEBHOOK_SECRET`. */
+/** Registers signed usage webhooks (0079); absent without `USAGE_WEBHOOK_SECRET`. */
 export function composeUsageWebhooks(
   env: Pick<RuntimeEnvironment, "HYPERDRIVE" | "USAGE_WEBHOOK_SECRET">,
 ): RuntimeOwnerBindings["usageWebhooks"] {
@@ -622,7 +622,7 @@ export function composeUsageWebhooks(
   };
 }
 
-/** Posts every due usage webhook's next events (0078), as the scheduled recovery. */
+/** Posts every due usage webhook's next events (0079), as the scheduled recovery. */
 export async function deliverUsageWebhooks(env: RuntimeEnvironment) {
   const secret = env.USAGE_WEBHOOK_SECRET;
   if (secret === undefined || secret === "") return undefined;
@@ -856,7 +856,7 @@ export interface RuntimeEnvironment {
   /** Optional actor-reply shadow judging (issue 271); absent, replies are not judged. */
   readonly ACTOR_REPLY_SHADOW_CONFIG?: string;
   readonly BETTER_AUTH_SECRET?: string;
-  /** Keys each usage webhook's signing secret (0078); absent, webhooks cannot be registered or delivered. */
+  /** Keys each usage webhook's signing secret (0079); absent, webhooks cannot be registered or delivered. */
   readonly USAGE_WEBHOOK_SECRET?: string;
   readonly AUTH_DATABASE_URL?: string;
   /** Dedicated credential writer; omitted means first-party MCP is unavailable. */
