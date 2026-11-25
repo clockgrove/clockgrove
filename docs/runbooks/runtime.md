@@ -194,7 +194,9 @@ subject `agent-runs`. Payload text needs the `conversation` category too. See
 audited with subject `context-manifest`. `/v1/runtime/actor-documents/read` (under
 `runtime:world-inspect` and `private_cognition`) and `/v1/runtime/actor-documents/change` (under
 `runtime:actor-govern` and `private_cognition`) read and govern an actor's documents, audited with
-subject `actor-documents`. See [context assembly](../protocols/context-assembly.md).
+subject `actor-documents`. `/v1/runtime/actor-mute` (under the same governing grant and ceiling)
+mutes or unmutes an actor or one conversation of it, audited with subject `actor-mute`. See
+[context assembly](../protocols/context-assembly.md).
 
 - **Scope:** only a command of the requested world, timeline and space is found. The space is the
   one the command's events were committed in, so a command without events the caller may read

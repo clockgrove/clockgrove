@@ -5,7 +5,7 @@
     {
       "name": "test:conversations",
       "files": [
-        "^apps/runtime/test/(conversations|context|runs|keeper-command|interaction-card)\\.journey\\.postgres\\.test\\.ts$"
+        "^apps/runtime/test/(conversations|context|runs|usage|keeper-command|interaction-card)\\.journey\\.postgres\\.test\\.ts$"
       ]
     },
     {
@@ -40,7 +40,7 @@
     {
       "name": "test:channels",
       "files": [
-        "^apps/runtime/test/(channel-conversations|cli-conversations|governed-delivery|delayed-delivery|delivery-consent|proactive-delivery)\\.journey\\.postgres\\.test\\.ts$",
+        "^apps/runtime/test/(channel-conversations|cli-conversations|governed-delivery|delayed-delivery|delivery-consent|proactive-delivery|actor-mute)\\.journey\\.postgres\\.test\\.ts$",
         "^apps/runtime/test/(external-effects|effects)\\.postgres\\.test\\.ts$"
       ]
     },
@@ -1001,7 +1001,7 @@
     {
       "id": "G8",
       "item": "Mute/revoke/kill switches act without waiting for actor cognition",
-      "coverage": "partial",
+      "coverage": "full",
       "evidence": [
         {
           "file": "apps/runtime/test/mcp-read-admission.postgres.test.ts",
@@ -1018,9 +1018,20 @@
         {
           "file": "apps/runtime/test/approval-waiting.postgres.test.ts",
           "marker": "recovers a durable approval wait without cognition or dispatch and refuses terminal human decisions"
+        },
+        {
+          "file": "apps/runtime/test/actor-mute.journey.postgres.test.ts",
+          "marker": "mutes an actor or one conversation at once: no turn, delivery or model call starts"
+        },
+        {
+          "file": "apps/runtime/test/actor-mute.journey.postgres.test.ts",
+          "marker": "expect(await deliveries()).toBe(\"rejected:actor_muted,rejected:consent_required\");"
+        },
+        {
+          "file": "apps/runtime/test/research-composition.postgres.test.ts",
+          "marker": ").toMatchObject({ disposition: \"refused\", outcomeCode: \"actor_muted\", attemptId: null });"
         }
-      ],
-      "deviation": "Kill switch (global/target) and revocation are enforced in admission SQL/executors with no model call; no test exercises an actor/conversation mute switch (grep finds none), and delivery-consent revocation is only covered indirectly."
+      ]
     }
   ],
   "outcomeRows": [
