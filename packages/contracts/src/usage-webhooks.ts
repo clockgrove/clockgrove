@@ -27,7 +27,14 @@ export interface UsageWebhookBody {
 }
 
 export function decodeUsageWebhookRequest(value: unknown): UsageWebhookRequest {
-  const path = "usageWebhook";
+  return decodeUsageUrlRequest(value, "usageWebhook");
+}
+
+/**
+ * A space and an outside https URL (or `null`), as a usage webhook or an admission hook registers
+ * one: both post from the deployment to the developer's host.
+ */
+export function decodeUsageUrlRequest(value: unknown, path: string): UsageWebhookRequest {
   const v = record(value, path);
   exactKeys(v, ["version", "tenantId", "worldId", "timelineId", "spaceId", "url"], [], path);
   if (v.version !== 1) throw new ContractDecodeError(`${path}.version`, "expected 1");

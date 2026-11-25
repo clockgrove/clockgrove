@@ -185,7 +185,8 @@ export interface ConversationMessage {
     | "model_unavailable"
     | "model_steps_exhausted"
     | "cost_budget_exhausted"
-    | "tool_calls_exhausted";
+    | "tool_calls_exhausted"
+    | "usage_refused";
 }
 
 /** One input message and its answer. The scripted fixture completes a turn in its request. */
@@ -514,6 +515,7 @@ export function decodeConversationMessage(
               "model_steps_exhausted",
               "cost_budget_exhausted",
               "tool_calls_exhausted",
+              "usage_refused",
             ],
             `${path}.serviceOutcome`,
           ),

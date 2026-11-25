@@ -29,6 +29,7 @@ const RESULTS: Readonly<Record<TurnResult, TurnState>> = {
   cost_budget_exhausted: { key: "budget-blocked", label: "Budget blocked" },
   tool_calls_exhausted: { key: "budget-blocked", label: "Budget blocked" },
   model_steps_exhausted: { key: "budget-blocked", label: "Budget blocked" },
+  usage_refused: { key: "usage-refused", label: "Usage refused" },
 };
 
 const SERVICE_OUTCOMES: readonly ServiceOutcome[] = [
@@ -36,6 +37,7 @@ const SERVICE_OUTCOMES: readonly ServiceOutcome[] = [
   "cost_budget_exhausted",
   "tool_calls_exhausted",
   "model_steps_exhausted",
+  "usage_refused",
 ];
 
 /**
@@ -80,9 +82,14 @@ function phaseState(phase: string | undefined, provisional: boolean): TurnState 
 }
 
 export function isTerminalState(state: TurnState): boolean {
-  return ["completed", "cancelled", "failed", "model-unavailable", "budget-blocked"].includes(
-    state.key,
-  );
+  return [
+    "completed",
+    "cancelled",
+    "failed",
+    "model-unavailable",
+    "budget-blocked",
+    "usage-refused",
+  ].includes(state.key);
 }
 
 /** The one visible turn state, or nothing when no turn is in flight or settled. */

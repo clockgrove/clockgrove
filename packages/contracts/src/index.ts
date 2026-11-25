@@ -30,6 +30,7 @@ export * from "./scene-surfaces.js";
 export * from "./spatial-units.js";
 export * from "./turn-fibers.js";
 export * from "./usage.js";
+export * from "./usage-admission.js";
 export * from "./usage-forwarding.js";
 export * from "./usage-webhooks.js";
 export { ContractDecodeError, exactKeys, nonNegativeInteger, record } from "./validation.js";
