@@ -7,7 +7,7 @@ import type {
   ObjectId,
 } from "@clockgrove/contracts";
 import { useEffect, useRef, useState } from "react";
-import { FlashbackReplay } from "./flashback-pip.js";
+import { FlashbackReplay, FlashbackStage } from "./flashback-pip.js";
 import type { RendererContent } from "./renderer-content.js";
 import type { SceneSession } from "./scene-api.js";
 import { useFlashbackQuery } from "./scene-queries.js";
@@ -109,12 +109,16 @@ export function FlashbackPanel({
   useEffect(() => {
     if (entryKey !== "") heading.current?.focus();
   }, [entryKey]);
+  // Issue 273: one PiP renderer for the whole time the flashback is open, released on close.
+  const [stage] = useState(() => new FlashbackStage());
+  useEffect(() => () => stage.stop(), [stage]);
   useEffect(() => {
     if (open) return;
+    stage.stop();
     setChain([]);
     refocus.current?.focus();
     refocus.current = null;
-  }, [open]);
+  }, [open, stage]);
   if (!open || entry === undefined) return null;
   const path: readonly ChainStep[] =
     chain.at(-1)?.key === entryKey ? chain : [{ key: entryKey, entry, objectId: undefined }];
@@ -196,6 +200,7 @@ export function FlashbackPanel({
           <FlashbackReplay
             key={`${value.moment.commandId}:${value.moment.partitionSequence}`}
             flashback={value}
+            stage={stage}
             tier={tier}
             dayLengthMs={dayLengthMs}
             {...(content && { content })}

@@ -327,7 +327,14 @@ argument (`RendererLimits`): its own governor's ceiling is low, so it renders at
 bloom, a quarter of its fragments shaded, low's 512,000-pixel output cap and 16 MiB render-target
 ceiling) whatever the live tier, at a pixel ratio of at most 1, so its output is its CSS size. It
 loads its own copy of the content's atlas and material textures, which the material delivery
-budget holds to 32 MiB, and runs one more animation-frame loop.
+budget holds to 32 MiB, and runs one more animation-frame loop. That loop draws only when the PiP's
+journaled frame, size, tier or content changes (`stillFrames`), never once per animation frame
+while it holds still, so a paused or finished replay costs the live view no draws.
+
+A flashback builds that renderer once (`FlashbackStage`) and keeps it while it is open: stepping
+back through causes, retrying a step or going back loads the new moment's frames into the same
+renderer, so walking a chain never builds another device, shader set or texture copy. Closing the
+flashback, a moment shown without a PiP budget, a lost device or a change of content releases it.
 
 On a wide shell the PiP sits over the rail's lower corner and the rail reserves its height at its
 foot, so the rail's last rows scroll clear of it. Below 1200 px the flashback panel is a sheet

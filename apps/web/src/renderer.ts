@@ -177,11 +177,14 @@ export type RendererReport = (point: RendererMeasurement) => void;
 export type { QualityTier } from "./quality-tier.js";
 /**
  * Issue 273: what a second renderer (the flashback's picture-in-picture) is held to, so it adds no
- * more than its declared budget: a tier ceiling for its own governor and a cap on its pixel ratio.
+ * more than its declared budget: a tier ceiling for its own governor, a cap on its pixel ratio, and
+ * `stillFrames`, which draws only when what it shows changes (a snapshot, a resize, a tier, content
+ * becoming ready), never once per animation frame for world content that holds still.
  */
 export interface RendererLimits {
   readonly tierCeiling?: QualityTier;
   readonly maxPixelRatio?: number;
+  readonly stillFrames?: boolean;
 }
 
 /** #184: output caps reserve texture headroom inside 16/64/192 MiB tier ceilings.
@@ -2646,7 +2649,9 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.cues = this.cues.filter((cue) => time < cue.end);
     if (cueCount !== this.cues.length) this.updateTextureBytes();
     this.contentTime = time;
-    changed = this.updateContent(time) || changed;
+    // Issue 273: a still renderer updates its content only on a frame it already draws, since world
+    // content reports a change on every update.
+    if (!this.limits.stillFrames || changed) changed = this.updateContent(time) || changed;
     changed = this.animate(time) || changed;
     const selected = this.selected === undefined ? undefined : this.drawn.get(this.selected);
     if (selected) this.moveSelection(selected);

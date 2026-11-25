@@ -148,9 +148,15 @@ export const FLASHBACK_PIP_BUDGET: Readonly<
  * low's 512,000-pixel output cap and 16 MiB render-target ceiling, whatever the live tier, and at a
  * pixel ratio of 1, so its output is its CSS size (at most 480 x 300). It loads its own copy of the
  * content's atlas and material textures, which the material delivery budget holds to 32 MiB
- * (MATERIAL_DELIVERY_BUDGET), and runs one more animation-frame loop.
+ * (MATERIAL_DELIVERY_BUDGET), and runs one more animation-frame loop that draws only when its
+ * journaled frame, size, tier or content changes, never every animation frame while it holds still.
  */
 export const FLASHBACK_PIP_LIMITS = {
   tierCeiling: "low",
   maxPixelRatio: 1,
-} as const satisfies { readonly tierCeiling: QualityTier; readonly maxPixelRatio: number };
+  stillFrames: true,
+} as const satisfies {
+  readonly tierCeiling: QualityTier;
+  readonly maxPixelRatio: number;
+  readonly stillFrames: boolean;
+};

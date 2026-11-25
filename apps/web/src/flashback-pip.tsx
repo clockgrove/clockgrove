@@ -1,4 +1,4 @@
-import type { Flashback } from "@clockgrove/contracts";
+import type { Flashback, SceneProjection } from "@clockgrove/contracts";
 import { useEffect, useRef, useState } from "react";
 import {
   FLASHBACK_FRAME_MS,
@@ -14,18 +14,105 @@ const reducedMotion = (): boolean =>
   typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
- * Issue 273: plays a flashback's journaled frames picture-in-picture in a second renderer while the
- * live scene keeps running. The PiP's size follows the live tier's budget; without one, the frame
- * captions and the panel's text summary are the floor. Reduced motion draws each journaled frame
- * as it was, never a position between two of them.
+ * Issue 273: the flashback's one picture-in-picture renderer, kept while the flashback is open, so
+ * stepping back through causes, retrying or going back loads each moment's journaled frames into
+ * the same renderer rather than building a new one (a device, its shaders and textures) each time.
+ * It is created on the first replay that has a budget and released when the flashback closes, a
+ * replay has no budget, the renderer fails or the content changes.
+ */
+export class FlashbackStage {
+  /** The element the renderer draws into; a replay places it in its own slot while it shows. */
+  readonly host: HTMLDivElement = document.createElement("div");
+  private created: WorldSceneAdapter | undefined;
+  private ready: WorldSceneAdapter | undefined;
+  private starting = false;
+  private content: RendererContent | undefined;
+  private projection: SceneProjection | undefined;
+  private dayLength: bigint | undefined;
+  private failure: (() => void) | undefined;
+  private generation = 0;
+
+  /** Starts the renderer unless one already runs for this content; `failed` hears a loss. */
+  start(content: RendererContent | undefined, failed: () => void): void {
+    this.failure = failed;
+    if ((this.created !== undefined || this.starting) && content === this.content) return;
+    this.stop();
+    this.content = content;
+    const generation = this.generation;
+    this.starting = true;
+    void import("./renderer.js")
+      .then(({ ThreeWorldSceneAdapter }) => {
+        if (generation !== this.generation) return;
+        this.starting = false;
+        const renderer: WorldSceneAdapter = new ThreeWorldSceneAdapter(
+          this.host,
+          () => {
+            if (generation !== this.generation || this.created !== renderer) return;
+            try {
+              renderer.setReducedMotion(true);
+              renderer.setDayLength(this.dayLength);
+              if (this.projection) renderer.loadSnapshot(this.projection);
+              this.ready = renderer;
+            } catch {
+              this.lose(generation);
+            }
+          },
+          () => this.lose(generation),
+          () => {},
+          content,
+          FLASHBACK_PIP_LIMITS,
+        );
+        // A renderer that failed while it was being constructed is not kept.
+        if (generation === this.generation) this.created = renderer;
+        else renderer.destroy();
+      })
+      .catch(() => this.lose(generation));
+  }
+  /** Draws one journaled frame, now if the renderer is ready, else once it is. */
+  show(projection: SceneProjection): void {
+    this.projection = projection;
+    if (!this.ready) return;
+    try {
+      this.ready.loadSnapshot(projection);
+    } catch {
+      this.lose(this.generation);
+    }
+  }
+  setDayLength(dayLengthMs: bigint | undefined): void {
+    this.dayLength = dayLengthMs;
+    this.ready?.setDayLength(dayLengthMs);
+  }
+  /** Releases the renderer; the next start builds a new one. */
+  stop(): void {
+    this.generation += 1;
+    this.starting = false;
+    this.ready = undefined;
+    this.created?.destroy();
+    this.created = undefined;
+  }
+  private lose(generation: number): void {
+    if (generation !== this.generation) return;
+    const failed = this.failure;
+    this.stop();
+    failed?.();
+  }
+}
+
+/**
+ * Issue 273: plays a flashback's journaled frames picture-in-picture in the flashback's one
+ * renderer (FlashbackStage) while the live scene keeps running. The PiP's size follows the live
+ * tier's budget; without one, the frame captions and the panel's text summary are the floor.
+ * Reduced motion draws each journaled frame as it was, never a position between two of them.
  */
 export function FlashbackReplay({
   flashback,
+  stage,
   tier,
   content,
   dayLengthMs,
 }: {
   readonly flashback: Flashback;
+  readonly stage: FlashbackStage;
   readonly tier: QualityTier | undefined;
   readonly content?: RendererContent;
   readonly dayLengthMs: bigint | undefined;
@@ -35,12 +122,7 @@ export function FlashbackReplay({
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(() => !reducedMotion());
   const [failed, setFailed] = useState(false);
-  const parent = useRef<HTMLDivElement>(null);
-  const adapter = useRef<WorldSceneAdapter | undefined>(undefined);
-  const shown = useRef(index);
-  shown.current = index;
-  const dayLength = useRef(dayLengthMs);
-  dayLength.current = dayLengthMs;
+  const slot = useRef<HTMLDivElement>(null);
   // The lowest live tier seen while this flashback is open: a live step down that removes the PiP
   // keeps it removed until the flashback closes, so a recovering live tier cannot recreate it.
   const [lowest, setLowest] = useState(tier);
@@ -50,7 +132,7 @@ export function FlashbackReplay({
       : lowest;
   if (held !== lowest) setLowest(held);
   const budget = held === undefined ? null : FLASHBACK_PIP_BUDGET[held];
-  const hasBudget = budget !== null;
+  const shown = budget !== null && !failed;
 
   useEffect(() => {
     if (!playing || index >= last) {
@@ -62,76 +144,39 @@ export function FlashbackReplay({
   }, [playing, index, last]);
 
   useEffect(() => {
-    const host = parent.current;
-    if (!hasBudget || failed || !host) return;
-    let active = true;
-    let created: WorldSceneAdapter | undefined;
-    const lose = () => {
-      if (!active) return;
-      created?.destroy();
-      created = undefined;
-      adapter.current = undefined;
-      setFailed(true);
-    };
-    void import("./renderer.js")
-      .then(({ ThreeWorldSceneAdapter }) => {
-        if (!active) return;
-        const renderer: WorldSceneAdapter = new ThreeWorldSceneAdapter(
-          host,
-          () => {
-            if (!active || created !== renderer) return;
-            try {
-              renderer.setReducedMotion(true);
-              renderer.setDayLength(dayLength.current);
-              const first = frames[shown.current] ?? frames[0];
-              if (first) renderer.loadSnapshot(first.projection);
-              adapter.current = renderer;
-            } catch {
-              lose();
-            }
-          },
-          lose,
-          () => {},
-          content,
-          FLASHBACK_PIP_LIMITS,
-        );
-        created = renderer;
-      })
-      .catch(lose);
-    return () => {
-      active = false;
-      adapter.current = undefined;
-      created?.destroy();
-    };
-  }, [hasBudget, failed, content, frames]);
+    if (budget === null) stage.stop();
+  }, [budget, stage]);
 
   useEffect(() => {
-    adapter.current?.setDayLength(dayLengthMs);
-  }, [dayLengthMs]);
+    const at = slot.current;
+    if (!shown || !at || held === undefined || budget === null) return;
+    const host = stage.host;
+    host.className = "rw-flashback-pip";
+    host.setAttribute("aria-hidden", "true");
+    host.style.width = `${budget.width}px`;
+    host.style.height = `${budget.height}px`;
+    host.dataset.pipTier = held;
+    at.appendChild(host);
+    stage.start(content, () => setFailed(true));
+    return () => host.remove();
+  }, [shown, held, budget, stage, content]);
+
+  useEffect(() => {
+    stage.setDayLength(dayLengthMs);
+  }, [stage, dayLengthMs]);
 
   useEffect(() => {
     const frame = frames[index];
-    if (!adapter.current || !frame) return;
-    try {
-      adapter.current.loadSnapshot(frame.projection);
-    } catch {
-      setFailed(true);
-    }
-  }, [index, frames]);
+    if (frame) stage.show(frame.projection);
+  }, [stage, index, frames]);
 
   if (frames.length === 0) return null;
   const frame = frames[index] ?? frames[0];
   if (!frame) return null;
   return (
     <section aria-label="Flashback replay" className="rw-flashback-replay">
-      {budget && !failed ? (
-        <div
-          ref={parent}
-          className="rw-flashback-pip"
-          aria-hidden="true"
-          style={{ width: budget.width, height: budget.height }}
-          data-pip-tier={held}
-        />
+      {shown ? (
+        <div ref={slot} className="rw-flashback-pip-slot" />
       ) : failed && budget ? (
         <p>Replay canvas unavailable. The frame captions and summary remain.</p>
       ) : held === undefined ? (

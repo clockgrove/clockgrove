@@ -172,6 +172,12 @@ ThreeWorldSceneAdapter.prototype.draw = function (...args) {
   }
   if (this.scene && this.projection) globalThis.hallDrawnRevision = String(this.projection.revision);
 };
+// Issue 273: the PiP's drawn frames are counted, so a still PiP is proved to draw nothing.
+const { renderFrame: originalRenderFrame } = ThreeWorldSceneAdapter.prototype;
+ThreeWorldSceneAdapter.prototype.renderFrame = function (...args) {
+  if (!hallLive(this)) globalThis.hallPipRenders = (globalThis.hallPipRenders ?? 0) + 1;
+  return originalRenderFrame.apply(this, args);
+};
 globalThis.hallRendererHookRegistered = true;
 globalThis.hallRendererPresentInvoked = false;
 ThreeWorldSceneAdapter.prototype.loadSnapshot = function (...args) {
@@ -2092,6 +2098,11 @@ const observeHall = async (backend) => {
             }),
           )
           .toEqual([false, true, "low", 1, true, true, true]);
+        // The flashback keeps this one PiP renderer while it is open: the chain steps below load
+        // their moments into it rather than building another.
+        await page.evaluate(() => {
+          globalThis.hallPipFirst = globalThis.hallPipAdapter;
+        });
         const caption = (index) => {
           const frame = moment.frames[index];
           return `Frame ${index + 1} of ${moment.frames.length}: after command ${frame.commandId}, partition sequence ${frame.partitionSequence}${frame.moment ? ", the moment" : ""}.`;
@@ -2131,6 +2142,32 @@ const observeHall = async (backend) => {
         for (let index = 0; index < momentIndex; index += 1) await scrubber.press("ArrowRight");
         await expect.poll(() => frameCaption.textContent()).toBe(caption(momentIndex));
         // The PiP draws the moment's journaled projection, not the live one.
+        await expect
+          .poll(() => page.evaluate(() => globalThis.hallPipDrawnRevision))
+          .toBe(String(moment.frames[momentIndex].projection.revision));
+        // A paused PiP holding one journaled frame draws nothing more while the live view runs;
+        // stepping to another frame draws again.
+        const pipRenders = () => page.evaluate(() => globalThis.hallPipRenders ?? 0);
+        // The draws across 30 of the page's animation frames.
+        const drawsOverFrames = () =>
+          page.evaluate(
+            () =>
+              new Promise((resolve) => {
+                const before = globalThis.hallPipRenders ?? 0;
+                let left = 30;
+                const tick = () => {
+                  if ((left -= 1) > 0) requestAnimationFrame(tick);
+                  else resolve((globalThis.hallPipRenders ?? 0) - before);
+                };
+                requestAnimationFrame(tick);
+              }),
+          );
+        await expect.poll(drawsOverFrames).toBe(0);
+        const still = await pipRenders();
+        await scrubber.press(momentIndex > 0 ? "ArrowLeft" : "ArrowRight");
+        await expect.poll(pipRenders).toBeGreaterThan(still);
+        await scrubber.press(momentIndex > 0 ? "ArrowRight" : "ArrowLeft");
+        await expect.poll(() => frameCaption.textContent()).toBe(caption(momentIndex));
         await expect
           .poll(() => page.evaluate(() => globalThis.hallPipDrawnRevision))
           .toBe(String(moment.frames[momentIndex].projection.revision));
@@ -2228,8 +2265,17 @@ const observeHall = async (backend) => {
           ).toEqual(flashbackLines(moment));
           expect(await shownContext()).toEqual(moment.context === null ? [] : contextOf(moment));
         }
+        expect(
+          await page.evaluate(() => [
+            globalThis.hallPipAdapter === globalThis.hallPipFirst,
+            globalThis.hallPipFirst.destroyed,
+            globalThis.hallPipFirst.parent === document.querySelector(".rw-flashback-pip"),
+          ]),
+        ).toEqual([true, false, true]);
         await flashbackPanel.getByRole("button", { name: "Close flashback", exact: true }).click();
         expect(await flashbackPanel.count()).toBe(0);
+        // Closing the flashback releases its PiP renderer.
+        expect(await page.evaluate(() => globalThis.hallPipFirst.destroyed)).toBe(true);
         // The live renderer goes back to its own governor at the tier it started from.
         await page.evaluate(() => {
           const adapter = globalThis.hallAdapter;
