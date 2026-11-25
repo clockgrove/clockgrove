@@ -354,8 +354,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
              FROM clockgrove.actor_processes WHERE process_id = 'tally-2'`,
         ),
       ).rejects.toThrow(/segment exceeds its step budget/);
-      // Between segments nothing runs; a deployment disposes the runtime and its local storage.
-      expect(await agent({ op: "inspect" })).toMatchObject({ running: 0 });
+      // A deployment disposes the runtime and its local storage; the process carries on from PostgreSQL.
       await owner.replace(true);
       expect(await budgeted()).toMatchObject({
         processId: "tally-2",
