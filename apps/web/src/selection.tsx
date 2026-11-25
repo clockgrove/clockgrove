@@ -1,9 +1,16 @@
-import type { ObjectId, SelectionDerived, SelectionValues } from "@clockgrove/contracts";
+import type {
+  FlashbackMarks,
+  ObjectId,
+  SelectionDerived,
+  SelectionValues,
+} from "@clockgrove/contracts";
+import { useEffect } from "react";
 import { flashbackOpener } from "./flashback.js";
 import { InteractionCard } from "./interaction-card.js";
 import type { SceneSession } from "./scene-api.js";
 import {
   type SelectionProjection,
+  useFlashbackMarksQuery,
   useSceneStateProjection,
   useSelectionQuery,
 } from "./scene-queries.js";
@@ -93,6 +100,9 @@ function EntitySelectionPanel({
   readonly selected: ObjectId | undefined;
   readonly current: SelectionProjection | undefined;
 }) {
+  const marks = useFlashbackMarksQuery(session);
+  const marksKey = session.getMarksKey();
+  useEffect(() => session.loadMarks(marksKey), [session, marksKey]);
   if (!selected) return <p>Select an entity using the canvas or an entity button.</p>;
   const value = current?.value;
   return (
@@ -218,8 +228,69 @@ function EntitySelectionPanel({
               Earlier authorized actions
             </button>
           )}
+          {marks.value && marks.value.zones.length > 0 && (
+            <MarksSection session={session} marks={marks.value} />
+          )}
         </>
       )}
     </section>
+  );
+}
+
+const MARK_KIND_WORDS = {
+  interacted: "interacted",
+  worn: "worn by traffic",
+  "band-crossed": "crossed a band",
+  repaired: "repaired",
+} as const;
+
+function MarksSection({
+  session,
+  marks,
+}: {
+  readonly session: SceneSession;
+  readonly marks: FlashbackMarks;
+}) {
+  return (
+    <>
+      <h3>Marks</h3>
+      {marks.zones.map((zone) => (
+        <div key={zone.zoneId}>
+          <p>
+            Zone {zone.zoneId}: {zone.marks} marks now
+          </p>
+          <ol>
+            {zone.moments.map((moment) => (
+              <li key={moment.eventId}>
+                {MARK_KIND_WORDS[moment.kind]}; {moment.actorId ?? "no actor"}; interaction{" "}
+                {moment.interactionId ?? "none"}; recorded simulation time {moment.simulationTime};
+                partition sequence {moment.partitionSequence}
+                {moment.leftMark ? "; left a mark" : ""}{" "}
+                <button
+                  type="button"
+                  data-flashback-opener={`marks:${moment.eventId}`}
+                  onClick={(event) => {
+                    flashbackOpener.current = event.currentTarget;
+                    session.flashback({ eventId: moment.eventId });
+                  }}
+                >
+                  Flashback moment {moment.partitionSequence}
+                </button>
+              </li>
+            ))}
+          </ol>
+          {zone.more > 0 && <p>{zone.more} earlier moments in the scan are not listed.</p>}
+        </div>
+      ))}
+      {!marks.reachesStart && marks.scanned && (
+        <p>
+          Earlier moments are beyond the scanned journal range (from partition sequence{" "}
+          {marks.scanned.from}) and are not listed.
+        </p>
+      )}
+      {marks.status === "not-visible" && (
+        <p>Part of the journal is not visible to you, so no moments are listed.</p>
+      )}
+    </>
   );
 }

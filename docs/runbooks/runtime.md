@@ -166,7 +166,7 @@ its caller checked, and audits a refusal before throwing it: an inspect-grant ca
 Projection replay
 (`verifyProjection`) is not offered over HTTP.
 
-Public `/v1/runtime/scene`, `/v1/runtime/entity`, `/v1/runtime/why`, `/v1/runtime/flashback`, `/v1/runtime/viewed-space` reads and the `/v1/projection`
+Public `/v1/runtime/scene`, `/v1/runtime/entity`, `/v1/runtime/why`, `/v1/runtime/flashback`, `/v1/runtime/flashback/marks`, `/v1/runtime/viewed-space` reads and the `/v1/projection`
 scene connection require the independent scoped `runtime:world-observe` grant, current membership
 and a `public_scene` privacy allowance. These reads do not change canonical world state.
 `runtime:world-inspect` does not imply observation (2026-10-30): inspect-only callers

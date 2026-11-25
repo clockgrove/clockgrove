@@ -1,6 +1,7 @@
 import {
   decodeBrowserScope,
   decodeEntitySelection,
+  decodeFlashbackMarks,
   decodeLivingScene,
   decodeRecordedWhy,
 } from "@clockgrove/contracts";
@@ -222,4 +223,36 @@ it("retires scope and credential lifetimes, refusal and sign-out without late in
   await late(first);
   expect(view()).toEqual([undefined, "none", "none"]);
   expect(keys()).toEqual([["living-scene", "projection"]]);
+});
+
+it("sends the selected entity's marks read once, over the selection's idle query, and shows its moments", async () => {
+  const { session } = await observing();
+  await reply(first, () => session.select(first.objectId));
+  const key = session.getMarksKey();
+  expect(session.queries.getQueryState(key)).toMatchObject({
+    status: "pending",
+    fetchStatus: "idle",
+  });
+  const marks = decodeFlashbackMarks(
+    JSON.parse(
+      '{"tenantId":"tenant-q","worldId":"world-q","timelineId":"timeline-q","spaceId":"space-q","version":1,"privacyClass":"public_scene","target":{"objectId":"a"},"bounds":{"moments":16,"scanEvents":4000},"status":"read","scanned":{"from":"1","to":"9"},"reachesStart":true,"zones":[{"zoneId":"bark","host":{"kind":"object","objectId":"a"},"marks":1,"moments":[{"eventId":"e","commandId":"c","partitionSequence":"9","simulationTime":"20","kind":"interacted","actorId":"b","interactionId":"scratch","leftMark":true}],"more":0}]}',
+    ),
+  );
+  const pending = beginReply(() => session.loadMarks(key));
+  session.loadMarks(key);
+  await pending(marks);
+  const calls = vi.mocked(fetch).mock.calls;
+  expect(calls.map(([url]) => String(url).replace(/^.*(?=\/v1\/)/, ""))).toEqual([
+    "/v1/runtime/entity",
+    "/v1/runtime/flashback/marks",
+  ]);
+  expect(JSON.parse(calls[1]?.[1]?.body?.toString() ?? "null")).toEqual({
+    version: 1,
+    ...scope,
+    objectId: "a",
+  });
+  expect(session.getMarksSnapshot()).toEqual({ status: "ready", value: marks });
+  session.loadMarks(key);
+  expect(calls).toHaveLength(2);
+  session.replace(undefined, undefined);
 });

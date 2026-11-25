@@ -46,7 +46,8 @@ export type BirthSectionName =
   | "wellbeing"
   | "lifecycle"
   | "processes"
-  | "boundaryExchanges";
+  | "boundaryExchanges"
+  | "surfaces";
 export type BirthElementKind = "frame" | "region" | "anchor-graph" | "entity";
 
 export interface BirthSectionRow {
@@ -126,6 +127,7 @@ const STATE_KEYS: ReadonlySet<string> = new Set([
   "ecology",
   "processes",
   "boundaryExchanges",
+  "surfaces",
   "wellbeing",
   "lifecycle",
   "scriptedCognition",
@@ -142,6 +144,7 @@ const SECTIONS: readonly BirthSectionName[] = [
   "lifecycle",
   "processes",
   "boundaryExchanges",
+  "surfaces",
 ];
 
 function refuse(code: string, path: string, message: string): never {

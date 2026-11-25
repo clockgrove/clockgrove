@@ -110,6 +110,7 @@ import { PostgreSqlCognitionInspector } from "./cognition.js";
 import type { ConversationStores, TurnOwners } from "./conversations.js";
 import { handleEffectEndpoint, isEffectRoute } from "./effect-endpoint.js";
 import { PostgreSqlFlashbackReader } from "./flashback.js";
+import { PostgreSqlFlashbackMarksReader } from "./flashback-marks.js";
 import {
   HyperdrivePostgreSqlClient,
   withHyperdrivePostgreSqlClient,
@@ -1621,6 +1622,10 @@ export default {
           status: (scope, context) =>
             withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
               new PostgreSqlWorldStatusReader(client).read(scope, context),
+            ),
+          marks: (request, context) =>
+            withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+              new PostgreSqlFlashbackMarksReader(client).read(request, context),
             ),
         },
         // Membership rows are visible only to the world reader, through its directory function.

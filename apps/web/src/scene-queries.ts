@@ -5,6 +5,7 @@ import type {
   EntitySelection,
   Flashback,
   FlashbackEntry,
+  FlashbackMarks,
   ObjectId,
   RecordedWhy,
   RecordedWhyEntry,
@@ -51,6 +52,15 @@ export type FlashbackQueryKey = readonly [
   number,
   FlashbackEntry | undefined,
 ];
+/** Issue 273: the selected entity's marks read, fenced like the selection it follows. */
+export type MarksQueryKey = readonly [
+  "living-scene",
+  "marks",
+  number,
+  BrowserScope | undefined,
+  number,
+  ObjectId | undefined,
+];
 export type ViewTraceQueryKey = readonly [
   "living-scene",
   "view-trace",
@@ -78,6 +88,10 @@ export interface FlashbackProjection {
   /** `not-found`: the runtime has no such event or command in this space (404), not a failure. */
   readonly status: "none" | "loading" | "ready" | "unavailable" | "refused" | "not-found";
   readonly value: Flashback | undefined;
+}
+export interface MarksProjection {
+  readonly status: "none" | "loading" | "ready" | "unavailable" | "refused";
+  readonly value: FlashbackMarks | undefined;
 }
 export interface ViewTraceProjection {
   readonly status: "none" | "loading" | "ready" | "unavailable" | "refused";
@@ -151,6 +165,23 @@ export function flashbackProjection(
             : state.error instanceof ApiRefusal && state.error.status === 404
               ? "not-found"
               : "unavailable"
+          : "loading",
+    value: state?.status === "success" ? state.data : undefined,
+  };
+}
+export function marksProjection(
+  objectId: ObjectId | undefined,
+  state: Pick<QueryState<FlashbackMarks>, "status" | "data" | "error"> | undefined,
+): MarksProjection {
+  return {
+    status: !objectId
+      ? "none"
+      : state?.status === "success"
+        ? "ready"
+        : state?.status === "error"
+          ? state.error instanceof ApiRefusal && state.error.status === 429
+            ? "refused"
+            : "unavailable"
           : "loading",
     value: state?.status === "success" ? state.data : undefined,
   };
@@ -242,6 +273,11 @@ export function useFlashbackQuery(session: SceneSession): FlashbackProjection {
   const queryKey = useReadKey(session, session.getFlashbackKey);
   const query = useQuery<Flashback>({ queryKey, queryFn: skipToken }, session.queries);
   return flashbackProjection(queryKey[5], query);
+}
+export function useFlashbackMarksQuery(session: SceneSession): MarksProjection {
+  const queryKey = useReadKey(session, session.getMarksKey);
+  const query = useQuery<FlashbackMarks>({ queryKey, queryFn: skipToken }, session.queries);
+  return marksProjection(queryKey[5], query);
 }
 export function useViewTraceQuery(session: SceneSession): ViewTraceProjection {
   const queryKey = useReadKey(session, session.getViewTraceKey);

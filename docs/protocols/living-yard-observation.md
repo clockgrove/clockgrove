@@ -547,3 +547,42 @@ PostgreSQL:
 - for an early event of a command longer than the window, the replay stays within
   `catchUpEvents + windowEvents`, and the actor's decisions recorded after the moment are not
   given as its causes.
+
+### Flashback marks
+
+`POST /v1/runtime/flashback/marks` lists the moments of a mark (issue 273): the journaled events
+that changed a surface zone ([domain surfaces](../../packages/domain/docs/surfaces.md)), each a
+flashback entry. It accepts exactly `FlashbackMarksRequest` (`flashback.ts`): version 1, the four
+scope IDs and one target, `zoneId`, `objectId` (every zone that object hosts) or `regionId` (every
+zone that region hosts). It is a scene observation with the scene read's authority: the scoped
+`runtime:world-observe` grant and a `public_scene` ceiling. It writes nothing and adds no audit row;
+each moment the observer then plays is a flashback, audited as above. Its codes are the scene
+read's: 400 `invalid_inspection_request`, 401 `authentication_refused`, 403
+`authorization_refused`, 409 `world_not_ready` and 503 `inspector_unavailable`.
+
+`FlashbackMarks` decodes only through `decodeFlashbackMarks`. Besides the scope, `privacyClass:
+"public_scene"` and the `target`, it holds:
+
+- `bounds`: `FLASHBACK_MARK_BOUNDS`, echoed in every response: at most 16 moments per zone, newest
+  first (twice a flashback's 8 frames either side, half the 32-mark ring ceiling), from a scan of
+  at most 4,000 partition events back from the head (a flashback's own catch-up bound, so a listed
+  moment is one a flashback can replay from a sweep snapshot).
+- `status`: `read`, or `not-visible` when an event in the scanned range is outside the observer's
+  ceiling, in which case no moment is listed rather than reading under a wider authority.
+- `scanned`: the partition range read (`from`, `to`), or null when there was nothing to read, and
+  `reachesStart`: false when earlier events were not scanned, so earlier moments are not listed and
+  none is guessed.
+- `zones`: the policy's zones on the target, in declaration order, that the observer can see: a
+  zone on an object only while the object is in the observed space's public scene, a zone on a
+  region of the partition always. Each gives its `host`, the number of `marks` its ring holds now,
+  its `moments` and `more`, the moments found beyond the 16 shown. A moment is one event:
+  `interacted` (`surface.interacted`), `worn` (a `movement.region-entered` whose traffic touched
+  the zone), `band-crossed` or `repaired`, with its event, command, partition sequence, simulation
+  time, acting actor (null for a crossing or a repair), interaction and whether it left a mark.
+  A world whose pack declares no surfaces answers no zones.
+
+A flashback of a `surface.*` event follows its acting actor, and its summary tells an interaction
+in a closed sentence citing the event. The web shell lists a selected entity's marks under
+**Marks** in its selection panel, each moment with its own flashback.
+`apps/runtime/test/flashback-marks.journey.postgres.test.ts` checks the list against the
+`clockgrove.events` rows of the zone and plays one moment through the flashback route.
