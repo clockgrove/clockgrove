@@ -101,6 +101,19 @@ export type RouteAttemptOutcome =
   | "invalid_output"
   | "cancelled";
 
+export type BreakerState = "closed" | "open" | "half_open";
+
+/** One change of a route's breaker, caused by the attempt that carries it. */
+export interface BreakerTransition {
+  readonly routeId: string;
+  readonly from: BreakerState;
+  readonly to: BreakerState;
+  /** The route's consecutive failures once the transition happened. */
+  readonly consecutiveFailures: number;
+  /** The gateway clock's time of the transition, epoch milliseconds. */
+  readonly at: number;
+}
+
 export interface RouteAttempt {
   readonly routeId: string;
   readonly provider: ProviderKind;
@@ -125,6 +138,8 @@ export interface RouteAttempt {
   /** Cost the gateway itself reported, in USD, when it reported one. */
   readonly reportedCostUsd: number | null;
   readonly finishReason: string | null;
+  /** The breaker changes this attempt caused, in order; absent when it caused none. */
+  readonly breakerTransitions?: readonly BreakerTransition[];
 }
 
 /** One record per call: what was tried, what it cost, and why each route was or was not used. */
@@ -155,7 +170,7 @@ export interface ModelRouteStatus {
     routeId: string;
     provider: ProviderKind;
     model: string;
-    breaker: "closed" | "open" | "half_open";
+    breaker: BreakerState;
     consecutiveFailures: number;
   }>[];
 }

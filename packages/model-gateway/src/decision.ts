@@ -1,5 +1,5 @@
 import type { ModelRoute } from "./aliases.js";
-import type { ModelAttribution, ModelFailureCode } from "./port.js";
+import type { BreakerTransition, ModelAttribution, ModelFailureCode } from "./port.js";
 
 /** A bounded question: the caller lists the options; the model never invents one. */
 export type DecisionQuestion =
@@ -53,6 +53,8 @@ export interface DecisionCallRecord {
   /** The per-call ceiling reserved before the call; 0 when it was refused before reserving. */
   readonly reservedMicrousd: number;
   readonly requestSha256: string;
+  /** The breaker changes this call caused on its route, in order; absent when it caused none. */
+  readonly breakerTransitions?: readonly BreakerTransition[];
 }
 
 export type DecisionOutcome =

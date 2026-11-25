@@ -41,6 +41,14 @@ export const MAX_CHANGE_SET_OPERATIONS = 8;
 export const MAX_ACTOR_DOCUMENTS = 256;
 export const MAX_DOCUMENT_VERSIONS = 1000;
 
+/** The stated retention policy: every version is kept for the world's life, within these bounds. */
+export const DOCUMENT_RETENTION = {
+  policy: "world_lifetime",
+  maxVersions: MAX_DOCUMENT_VERSIONS,
+  maxDocumentBytes: MAX_DOCUMENT_OCTETS,
+  maxDocuments: MAX_ACTOR_DOCUMENTS,
+} as const;
+
 export interface DocumentPath {
   readonly path: string;
   readonly kind: DocumentKind;
@@ -137,6 +145,7 @@ export interface DocumentVersionView extends DocumentVersionRef {
   readonly principalId: string;
   readonly runId: string | null;
   readonly createdAt: string;
+  readonly retention: typeof DOCUMENT_RETENTION;
 }
 
 /** Where a manifest entry sits in the prompt; `null` for an excluded candidate. */

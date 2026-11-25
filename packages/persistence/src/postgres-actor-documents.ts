@@ -9,6 +9,7 @@ import {
   type ContextInspectRequest,
   type ContextManifest,
   type ContextManifestEntry,
+  DOCUMENT_RETENTION,
   type DocumentChangeReceipt,
   type DocumentOperation,
   type DocumentRefusalCode,
@@ -205,6 +206,7 @@ export class PostgreSqlActorDocuments {
         principalId: String(row.principal_id),
         runId: row.run_id === null ? null : String(row.run_id),
         createdAt: String(row.created_at),
+        retention: DOCUMENT_RETENTION,
       };
     });
   }

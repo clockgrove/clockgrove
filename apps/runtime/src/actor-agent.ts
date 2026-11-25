@@ -423,11 +423,12 @@ export class TurnFibers {
             });
             let response: ConversationResponse | undefined;
             let prepared: PreparedModelStep | undefined;
+            const turn = current.runId === null ? undefined : { runId: current.runId };
             if (this.host.research !== undefined) {
               const policy = this.host.research.policy;
               // A step that cannot be built falls back to `respond`, which fails the same way.
               prepared = await this.host
-                .prepare?.(session, caretakerMessages, input, prompt)
+                .prepare?.(session, caretakerMessages, input, prompt, turn)
                 .catch(() => undefined);
               const reserveMicrousd = prepared?.reserveMicrousd ?? policy.modelStepReserveMicrousd;
               const reserved = await this.store((store) =>
@@ -449,7 +450,7 @@ export class TurnFibers {
               try {
                 response =
                   prepared === undefined
-                    ? await this.host.respond(session, caretakerMessages, input, prompt)
+                    ? await this.host.respond(session, caretakerMessages, input, prompt, turn)
                     : await prepared.send(async (reserveMicrousd) => {
                         // A fallback route reserves its own worst case against what is left of
                         // the turn's cap before it is tried (issue 349).
