@@ -291,7 +291,14 @@ it.skipIf(!isNativeWorldOwnerChild())(
       });
 
       // ActorProcess: a stable process ID across bounded segments, checkpoints and lease epochs.
-      const advance = () => agent({ op: "process", processId: "tally-1", target: 10, steps: 4 });
+      const advance = () =>
+        agent({
+          op: "process",
+          processId: "tally-1",
+          target: 10,
+          steps: 4,
+          mode: "continuously_eligible",
+        });
       expect(await advance()).toMatchObject({ processId: "tally-1", checkpoint: 4, leaseEpoch: 1 });
       await owner.replace();
       expect(await advance()).toMatchObject({ processId: "tally-1", checkpoint: 8, leaseEpoch: 2 });
@@ -306,6 +313,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
         processId: "tally-1",
         actorId: KEEPER,
         objective: "fixture-tally",
+        mode: "continuously_eligible",
+        budget: { segments: 64, steps: 10000 },
         target: 10,
         checkpoint: 10,
         state: "completed",
@@ -317,6 +326,69 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ],
       });
       expect(await advance()).toMatchObject({ checkpoint: 10, leaseEpoch: 3 });
+
+      // ActorProcess: a continuously_eligible process keeps its budgets across a deployment.
+      const budgeted = () =>
+        agent({
+          op: "process",
+          processId: "tally-2",
+          target: 10,
+          steps: 5,
+          mode: "continuously_eligible",
+          budget: { segments: 2, steps: 3 },
+        });
+      // Each segment advances at most the step budget, whatever the caller asks.
+      expect(await budgeted()).toMatchObject({
+        processId: "tally-2",
+        mode: "continuously_eligible",
+        budget: { segments: 2, steps: 3 },
+        checkpoint: 3,
+        leaseEpoch: 1,
+        state: "active",
+      });
+      await expect(
+        rows(
+          `INSERT INTO clockgrove.actor_process_segments (tenant_id, process_id, segment, lease_epoch,
+             lease_holder, from_checkpoint, to_checkpoint)
+           SELECT tenant_id, process_id, 2, lease_epoch, lease_holder, 3, 7
+             FROM clockgrove.actor_processes WHERE process_id = 'tally-2'`,
+        ),
+      ).rejects.toThrow(/segment exceeds its step budget/);
+      // Between segments nothing runs; a deployment disposes the runtime and its local storage.
+      expect(await agent({ op: "inspect" })).toMatchObject({ running: 0 });
+      await owner.replace(true);
+      expect(await budgeted()).toMatchObject({
+        processId: "tally-2",
+        checkpoint: 6,
+        leaseEpoch: 2,
+        state: "active",
+        segments: [
+          { segment: 1, leaseEpoch: 1, fromCheckpoint: 0, toCheckpoint: 3 },
+          { segment: 2, leaseEpoch: 2, fromCheckpoint: 3, toCheckpoint: 6 },
+        ],
+      });
+      expect(
+        await rows(
+          `SELECT count(DISTINCT lease_holder) FROM clockgrove.actor_process_segments
+            WHERE process_id = 'tally-2'`,
+        ),
+      ).toBe("2");
+      // Its segment budget spent, the process takes no lease and runs no segment.
+      expect(await budgeted()).toMatchObject({
+        processId: "tally-2",
+        checkpoint: 6,
+        leaseEpoch: 2,
+        state: "active",
+        refusal: "process_budget_exhausted",
+      });
+      await expect(
+        rows(
+          `INSERT INTO clockgrove.actor_process_segments (tenant_id, process_id, segment, lease_epoch,
+             lease_holder, from_checkpoint, to_checkpoint)
+           SELECT tenant_id, process_id, 3, lease_epoch, lease_holder, 6, 7
+             FROM clockgrove.actor_processes WHERE process_id = 'tally-2'`,
+        ),
+      ).rejects.toThrow(/process segment budget spent/);
     });
   },
   240_000,

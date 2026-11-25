@@ -51,6 +51,8 @@ import {
 } from "@clockgrove/application";
 import {
   type ActorProcess,
+  type ActorProcessBudget,
+  type ActorProcessMode,
   type BrowserScope,
   ContractDecodeError,
   type ConversationSessionParticipant,
@@ -2006,7 +2008,10 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
 
   /**
    * One bounded segment of an `ActorProcess`: a new lease epoch, then one checkpoint at most `steps`
-   * further. The process ID is stable across segments and incarnations.
+   * further, and never past the process's step budget. The process ID is stable across segments,
+   * incarnations and deployments: everything the next segment needs is in PostgreSQL, so nothing
+   * stays resident between segments. A process whose segment budget is spent runs no segment and is
+   * answered with `process_budget_exhausted`.
    */
   async advanceProcess(
     scope: RuntimeScope,
@@ -2016,6 +2021,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       readonly actorId: string;
       readonly target: number;
       readonly steps: number;
+      readonly mode: ActorProcessMode;
+      readonly budget?: ActorProcessBudget;
     },
   ): Promise<ActorProcess> {
     assertWorldCommandContext(context, scope);
@@ -2024,16 +2031,21 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
       await processes.start(authorization, scope, input);
       const lease = await processes.claim(authorization, input.processId, this.instanceId);
       if (lease !== undefined) {
-        const next = Math.min(lease.target, lease.checkpoint + input.steps);
+        const steps = Math.min(input.steps, lease.stepLimit);
         await processes.segment(
           authorization,
           input.processId,
           { leaseEpoch: lease.leaseEpoch, holder: this.instanceId },
           lease.checkpoint,
-          next,
+          Math.min(lease.target, lease.checkpoint + steps),
         );
       }
-      return processes.read(authorization, input.processId);
+      const process = await processes.read(authorization, input.processId);
+      return lease === undefined &&
+        process.state === "active" &&
+        process.segments.length >= process.budget.segments
+        ? Object.freeze({ ...process, refusal: "process_budget_exhausted" as const })
+        : process;
     });
   }
 

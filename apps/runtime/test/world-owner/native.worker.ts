@@ -21,6 +21,8 @@ import {
   type WorldProvisioningStore,
 } from "@clockgrove/application";
 import {
+  type ActorProcessBudget,
+  type ActorProcessMode,
   decodeBrowserScope,
   decodeOpaqueId,
   decodePrivacyCategory,
@@ -1439,6 +1441,8 @@ export default {
           actorId,
           target: Number(body.target),
           steps: Number(body.steps),
+          mode: body.mode as ActorProcessMode,
+          ...(body.budget === undefined ? {} : { budget: body.budget as ActorProcessBudget }),
         }),
       );
     }

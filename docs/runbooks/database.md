@@ -699,7 +699,10 @@ Migration `0038_turn_fibers.sql` (Wave 5 RW-0503, issue 18) holds `conversation_
   from decreasing and gives a completed process no new lease. `append_actor_process_segment` admits
   a segment only under the process's current lease epoch and holder (`CG022` otherwise), only from
   its checkpoint, and moves the checkpoint (at most 64 segments). The runtime role may update only
-  a process's lease. Segments never change.
+  a process's lease. Segments never change. Migration `0079_actor_process_budgets.sql` adds the
+  process's mode and budget, frozen at start: a segment past its `segment_limit` or advancing more
+  than its `step_limit` is refused (`CG025`), and a process whose segments are spent takes no new
+  lease.
 - DELETE and TRUNCATE are refused on all three. Retention: see `db/retention.json`.
 
 ## Actor activation event cursors

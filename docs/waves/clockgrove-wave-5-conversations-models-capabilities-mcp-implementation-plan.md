@@ -845,5 +845,14 @@ Its second part delivers the fourth:
   stops a held delivery the same way (`consent_required`)
   ([context assembly](../protocols/context-assembly.md#operator-mute)).
 
-Still pending in the last part of issue 374: the §17 `continuously_eligible` process with budgets
-across a deployment (S16). Its row stays a deviation until then.
+Its third part delivers the fifth:
+
+- **§17 always-eligible processes (S16).** An `ActorProcess` names its mode and carries a budget
+  fixed at start: the segments it may run and the checkpoint steps one segment may advance (0079).
+  A `continuously_eligible` process is admitted for its next bounded segment at once and keeps one
+  stable process ID across segments, checkpoints and lease epochs. A segment never passes the step
+  budget, and once the segment budget is spent the process takes no lease and is answered
+  `process_budget_exhausted`. All of its state is in PostgreSQL, so it carries on from its
+  checkpoint across a deployment of the runtime that loses every local store, with nothing kept
+  resident between segments ([conversation fibers](../protocols/conversation-fibers.md#actorprocess)).
+  The hosted deployment stays pending on issue 3.

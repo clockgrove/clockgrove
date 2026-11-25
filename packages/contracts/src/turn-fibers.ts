@@ -159,11 +159,22 @@ export interface ActorProcess {
   readonly processId: string;
   readonly actorId: string;
   readonly objective: "fixture-tally";
+  /** `continuously_eligible`: admitted for its next segment at once, without waiting for an event. */
+  readonly mode: ActorProcessMode;
+  readonly budget: ActorProcessBudget;
   readonly target: number;
   readonly checkpoint: number;
   readonly state: "active" | "completed";
   readonly leaseEpoch: number;
   readonly segments: readonly ActorProcessSegment[];
+  /** Present when the last request ran no segment because the segment budget is spent (0079). */
+  readonly refusal?: "process_budget_exhausted";
+}
+export type ActorProcessMode = "reactive" | "scheduled" | "continuously_eligible";
+/** Fixed at start: the segments the process may run and the checkpoint steps one may advance. */
+export interface ActorProcessBudget {
+  readonly segments: number;
+  readonly steps: number;
 }
 export interface ActorProcessSegment {
   readonly segment: number;

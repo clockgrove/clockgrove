@@ -547,6 +547,13 @@
       "when": 1796162400018,
       "tag": "0078_actor_mutes",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1796162400019,
+      "tag": "0079_actor_process_budgets",
+      "breakpoints": true
     }
   ]
 }
