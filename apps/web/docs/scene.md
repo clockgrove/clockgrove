@@ -453,7 +453,7 @@ grade and the depth buffer treat it as they treat the set. Content in front hide
 | --- | --- | --- | --- | --- |
 | low | contact shape | none | stand-in | 1 contact shape (+ 1 stand-in near a lamp) |
 | medium | contact shape + key-light map | 1 × 512 when active | stand-in | contact shape + 1 shadow pass (+ 1 stand-in near a lamp) |
-| high | contact shape + key-light maps | 2 × 1024 when active | cube map 256 when active, else stand-in | contact shape + 2 shadow passes + 6 lamp faces |
+| high | contact shape + key-light maps | 2 × 1024 when active | stand-in; cube map 256 under the lab trial | contact shape + 2 shadow passes (+ 6 lamp faces under the trial) |
 
 Maps are active only when content opts in with `shadows: true`. Then every projected body casts into
 and receives the same key-light maps as the set. Its silhouette casts through the alpha-tested
@@ -486,26 +486,32 @@ set alike.
 | --- | --- | ---: |
 | low | stand-in on every contact shape | 0 |
 | medium | stand-in on every contact shape | 0 |
-| high | key lamp cube map, side 256, when active | 4,718,592 bytes |
+| high | stand-in; key lamp cube map, side 256, when admitted | 0; 4,718,592 bytes with the map |
 
-At high, when the set opts into shadows (`shadows: true`, the same condition as the key-light maps),
-the key lamp's point light casts a cube shadow map (near 1, far its range). Projected bodies cast
-into it with the silhouette they cast into the key-light maps, and content meshes cast and receive as
-their flags choose. Its storage, 6 faces × 256² × 12 bytes, counts in `shadowTextureBytes` and in
+The decision (Kirk, 2026-11-11) puts the lamp map at the top tier if the quality lab's frame cost
+allows. Until the lab reports, no tier's budget admits it (`lampShadowMaps` is 0 everywhere in
+`SCENE_QUALITY` and `scene-budgets.json`), so every tier draws the stand-in. High sizes the map
+(`lampShadowMapSize` 256), and the adapter's `setLampShadowTrial(true)` admits it there, so the lab
+can measure its frame cost; a lab result that holds it sets high's `lampShadowMaps` to 1.
+
+Where the map is admitted and the set opts into shadows (`shadows: true`, the same condition as the
+key-light maps), the key lamp's point light casts a cube shadow map (near 1, far its range).
+Projected bodies cast into it with the silhouette they cast into the key-light maps, and content
+meshes cast and receive as their flags choose. A body's lookup in the lamp map moves toward the lamp
+itself by the body's lift, not along the sky's key, so the lamp finds the body's own card on neither
+side. Its storage, 6 faces × 256² × 12 bytes, counts in `shadowTextureBytes` and in
 the texture ceiling before viewport targets are sized. Tier changes, a new key lamp, content
 failure and destruction retire it.
 
-Everywhere else a key lamp shines (low, medium, or high without the opt-in), every contact shape,
+Everywhere else a key lamp shines (wherever no lamp map is admitted or the set does not opt in), every contact shape,
 the projected bodies' and content `contacts` alike, gains a stand-in: a soft dark decal on the floor
 starting at the contact point and pointing away from the lamp's floor point. It lengthens from one
 to three contact spans as the lamp's height above the floor shrinks against its distance, and its
 opacity is 0.3 scaled by (1 − d/range)², none at or beyond the lamp's range. It moves and retires
-with its contact shape. With the lamp map active, no stand-ins draw.
+with its contact shape. With the lamp map active, no stand-ins draw. Stand-ins are placed each frame
+only while a key lamp is lit or a stand-in still shows.
 
-`metrics.lampShadowMaps` (0 or 1) and `metrics.lampStandIns` report what is drawn. The decision
-(Kirk, 2026-11-11) puts the lamp map at the top tier if the quality lab's frame cost allows: the
-budget here is software-measured, and a lab result that does not hold it sets high's lamp maps to 0
-in `SCENE_QUALITY` and `scene-budgets.json`, leaving the stand-in.
+`metrics.lampShadowMaps` (0 or 1) and `metrics.lampStandIns` report what is drawn.
 
 ### Occlusion and reveal (#266)
 

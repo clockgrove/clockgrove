@@ -8,7 +8,17 @@ import type {
 } from "@clockgrove/contracts";
 import { decodeSceneMaterialDelivery } from "@clockgrove/contracts";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
-import { float, pass, positionWorld, smoothstep, uniform, uv, vec4 } from "three/tsl";
+import {
+  float,
+  lightPosition,
+  pass,
+  positionWorld,
+  shadowPositionWorld,
+  smoothstep,
+  uniform,
+  uv,
+  vec4,
+} from "three/tsl";
 import * as THREE from "three/webgpu";
 import {
   type DeviceProfile,
@@ -201,7 +211,8 @@ export const SCENE_QUALITY = {
     contentLights: 8,
     shadowMaps: 2,
     shadowMapSize: 1024,
-    lampShadowMaps: 1,
+    // #266: held at 0 until the owner's quality lab measures the map's frame cost (setLampShadowTrial).
+    lampShadowMaps: 0,
     lampShadowMapSize: 256,
     renderScale: 1,
     maxOutputPixels: 3_000_000,
@@ -334,6 +345,23 @@ const LABEL_LAYER = 1;
  * background colour is held back for this pass only, so the composite keeps every scene pixel the
  * labels do not cover.
  */
+/**
+ * #266: the key lamp's shadow node. A body's received-shadow lookup moves toward the lamp itself (by
+ * the body's lift), not along the sky key's direction, so a lamp on either side of the card never
+ * finds the card in its own map. Set meshes keep Three's default lookup.
+ */
+class LampShadowNode extends THREE.PointShadowNode {
+  override setupShadowPosition(builder: THREE.NodeBuilder): void {
+    const lift = (builder.material?.userData as { shadowLift?: unknown } | undefined)?.shadowLift;
+    if (typeof lift !== "number") {
+      super.setupShadowPosition(builder);
+      return;
+    }
+    shadowPositionWorld.assign(
+      positionWorld.add(lightPosition(this.light).sub(positionWorld).normalize().mul(lift)),
+    );
+  }
+}
 class LabelPass extends THREE.PassNode {
   override updateBefore(frame: THREE.NodeFrame): boolean | undefined {
     const scene = this.scene as THREE.Scene;
@@ -404,6 +432,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private contentContacts: Native[] = [];
   /** The brightest admitted content light: the only one that casts character and set shadows (#266). */
   private keyLamp: THREE.PointLight | undefined;
+  /** #266: the quality lab's lamp-map trial (setLampShadowTrial). */
+  private lampTrial = false;
   /** Unit direction toward the key light; bodies' received-shadow lookups move along it (#266). */
   private readonly bodyShadowToLight = uniform(new THREE.Vector3(0, 0, 1));
   /** Whether drawn bodies are in the set's shadow maps; flags change only when this does (#266). */
@@ -1312,6 +1342,17 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.drawEmphasis();
     this.dirty = true;
   }
+  /**
+   * #266: the quality lab's switch. The decision admits the key lamp's cube map at high only if the
+   * lab's frame cost allows; with the trial on, high holds it so that cost can be measured.
+   */
+  setLampShadowTrial(enabled: boolean): void {
+    this.lampTrial = enabled;
+    if (!this.renderer) return;
+    this.syncContentLighting();
+    this.updateTextureBytes();
+    this.dirty = true;
+  }
   /** Tiers are renderer-local policy; no world or material contract changes when budget drops. */
   setQuality(tier: QualityTier): void {
     if (!(tier in SCENE_QUALITY) || !this.renderer) return;
@@ -1587,6 +1628,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       body.material.receivedShadowPositionNode = positionWorld.add(
         this.bodyShadowToLight.mul(lift),
       );
+      // The key lamp's map lifts toward the lamp instead (LampShadowNode).
+      body.material.userData.shadowLift = lift;
     }
     body.castShadow = body.receiveShadow = this.bodyShadows;
     this.scene.add(body, shadow);
@@ -1849,7 +1892,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     for (const light of this.contentLights)
       if (light.intensity > (key?.intensity ?? 0)) key = light;
     this.keyLamp = key;
-    const lampMap = shadows && quality.lampShadowMaps > 0 && key !== undefined;
+    const lampMap = shadows && this.lampMaps(this.tier) > 0 && key !== undefined;
     this.renderer.shadowMap.enabled = maps > 0 || lampMap;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.ground.receiveShadow = maps > 0 || lampMap;
@@ -1858,6 +1901,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
         this.retireLamp(light);
         continue;
       }
+      if (!light.castShadow) light.shadow.shadowNode = new LampShadowNode(light, light.shadow);
       light.castShadow = true;
       light.shadow.mapSize.set(quality.lampShadowMapSize, quality.lampShadowMapSize);
       light.shadow.camera.near = 1;
@@ -1936,7 +1980,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     // Three r187 ShadowNode: reserve 12 B/px conservatively for RGBA, depth and backend overhead.
     this.metrics.shadowTextureBytes =
       maps * quality.shadowMapSize ** 2 * 12 +
-      (lampMap ? quality.lampShadowMaps * lampMapBytes(quality.lampShadowMapSize) : 0);
+      (lampMap ? lampMapBytes(quality.lampShadowMapSize) : 0);
   }
   private retireLamp(light: THREE.PointLight): void {
     if (!light.castShadow) return;
@@ -1945,6 +1989,18 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     light.shadow.dispose();
     light.shadow.map = null;
     light.shadow.mapPass = null;
+    Reflect.deleteProperty(light.shadow, "shadowNode");
+  }
+  /**
+   * #266: the lamp maps a tier holds: its budget, or, while the quality lab's trial is on, one at a
+   * tier that sizes a lamp map (high), so its frame cost can be measured before the budget admits it.
+   */
+  private lampMaps(tier: QualityTier): number {
+    const quality = SCENE_QUALITY[tier];
+    return Math.max(
+      quality.lampShadowMaps,
+      this.lampTrial && quality.lampShadowMapSize > 0 ? 1 : 0,
+    );
   }
   /**
    * #266: where no lamp map is held, each contact shape carries a streak away from the key lamp.
@@ -1953,6 +2009,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
    */
   private updateStandIns(): boolean {
     const lamp = this.metrics.lampShadowMaps > 0 ? undefined : this.keyLamp;
+    // Without a lamp to place them for, nothing moves until a showing stand-in must hide.
+    if (!lamp && this.metrics.lampStandIns === 0) return false;
     let changed = false,
       shown = 0;
     for (const drawn of this.drawn.values()) {
@@ -2619,7 +2677,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
       this.resourceTextureBytes -
       this.metrics.shadowTextureBytes +
       quality.shadowMaps * quality.shadowMapSize ** 2 * 12 +
-      quality.lampShadowMaps * lampMapBytes(quality.lampShadowMapSize);
+      this.lampMaps(tier) * lampMapBytes(quality.lampShadowMapSize);
     return resources + MIN_TARGET_BYTES <= quality.textureBytes;
   }
   private updateTextureBytes(): void {

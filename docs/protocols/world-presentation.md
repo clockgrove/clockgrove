@@ -307,7 +307,8 @@ renderer's grounding, shadow and budget rules are in
 Lamps belong to the same picture. The brightest of a world's content lamps (its content `lights`) is
 the key lamp, the key at dusk. At the tiers whose lamp budget holds a map, it casts shadows for cast
 and set alike; below, every contact shape, the cast's and the set's, takes the same cheap stand-in,
-a soft shadow on the floor pointing away from the lamp. The rules are in
+a soft shadow on the floor pointing away from the lamp. No tier's budget holds the map until the
+owner's quality lab measures its frame cost at the top tier, so today every tier draws the stand-in. The rules are in
 [Lamp shadows](../../apps/web/docs/scene.md#lamp-shadows-266).
 
 Occlusion is part of the same picture: it is depth-true by default, so a character behind a trunk
