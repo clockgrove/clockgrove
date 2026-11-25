@@ -44,6 +44,11 @@ export function gatewayShadowDecider(
         latencyMs: record.latencyMs,
         costMicrousd: record.costMicrousd,
         reservedMicrousd: record.reservedMicrousd,
+        usage: {
+          calls: record.providerCalled ? (1 as const) : (0 as const),
+          inputTokens: record.inputTokens,
+          outputTokens: record.outputTokens,
+        },
       };
       if (outcome.status === "failed")
         return { status: "failed", code: outcome.code, ...accounting };

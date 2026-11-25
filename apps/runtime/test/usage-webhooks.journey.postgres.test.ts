@@ -77,10 +77,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(signingSecret).toBe(secret);
       const answers = [500, 204];
       const posts: { url: string; headers: Record<string, string>; body: string }[] = [];
-      const sweep = () =>
+      const sweep = (pageSize?: number) =>
         withClient(owner.fixture.environment, (client) =>
           sweepUsageWebhooks(client, {
             secret: NATIVE_USAGE_WEBHOOK_SECRET,
+            ...(pageSize === undefined ? {} : { pageSize }),
             fetch: async (url, init) => {
               posts.push({
                 url: String(url),
@@ -134,6 +135,25 @@ it.skipIf(!isNativeWorldOwnerChild())(
       // Nothing is left to send, so a delivered event is never posted again.
       expect(await sweep()).toEqual({ delivered: 0, failed: 0 });
       expect(posts).toHaveLength(2);
+
+      // A webhook that is behind is drained in one sweep, a page at a time, not a page per cron run.
+      await owner.request(
+        "/v1/runtime/talk",
+        { version: 1, ...owner.scope, sessionId: session, messageId: "m2", text: "Again." },
+        MEMBER,
+      );
+      const later = (
+        await owner.sql(
+          `SELECT string_agg(sequence::text, ',' ORDER BY sequence) FROM clockgrove.usage_events
+            WHERE sequence > ${sequences[1]}`,
+        )
+      ).split(",");
+      expect(later).toHaveLength(2);
+      expect(await sweep(1)).toEqual({ delivered: 2, failed: 0 });
+      expect(posts.slice(2).map((post) => post.headers["webhook-id"])).toEqual(
+        later.map((sequence) => `${webhookId}:${sequence}:${sequence}`),
+      );
+      expect(await state()).toBe(`0,delivered,${later[1]},true`);
     });
   },
   180_000,

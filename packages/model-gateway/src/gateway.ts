@@ -137,6 +137,9 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       costMicrousd: 0,
       reservedMicrousd: 0,
       requestSha256,
+      providerCalled: false,
+      inputTokens: 0,
+      outputTokens: 0,
       ...fields,
     });
     const fail = async (
@@ -194,19 +197,28 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
         }),
         alias.timeoutMs,
       );
-      const reserved = { reservedMicrousd: reservation.microusd };
+      const reserved = { reservedMicrousd: reservation.microusd, providerCalled: true };
       if (reply === TIMED_OUT) {
         controller.abort(new Error("decision timed out"));
         moved(routeBreaker.failed(now(), ticket), now());
         options.budget.settle(reservation, reservation.microusd);
-        return await fail("timeout", true, withMoves({ costMicrousd: null, ...reserved }));
+        return await fail(
+          "timeout",
+          true,
+          withMoves({ costMicrousd: null, inputTokens: null, outputTokens: null, ...reserved }),
+        );
       }
       const cost = decisionCost(alias, reply);
+      const tokens = { inputTokens: reply.inputTokens, outputTokens: reply.outputTokens };
       options.budget.settle(reservation, cost ?? reservation.microusd);
       // A named question left unanswered is a malformed answer: the call billed, the outcome fails.
       if (names.some((name) => reply.answers?.[name] === undefined)) {
         moved(routeBreaker.released(ticket), now());
-        return await fail("unavailable", false, withMoves({ costMicrousd: cost, ...reserved }));
+        return await fail(
+          "unavailable",
+          false,
+          withMoves({ costMicrousd: cost, ...tokens, ...reserved }),
+        );
       }
       moved(routeBreaker.succeeded(ticket), now());
       const record = recordOf(
@@ -216,6 +228,7 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
           label: reply.answer.label,
           confidence: reply.answer.confidence,
           costMicrousd: cost,
+          ...tokens,
           ...reserved,
         }),
       );
@@ -256,7 +269,16 @@ export function createModelGateway(options: ModelGatewayOptions): ModelGateway {
       return await fail(
         code,
         retryable,
-        withMoves({ costMicrousd: cost, reservedMicrousd: reservation.microusd }),
+        withMoves({
+          costMicrousd: cost,
+          reservedMicrousd: reservation.microusd,
+          // A missing credential fails in the adapter before any request is sent.
+          providerCalled: kind !== "credential_missing",
+          inputTokens:
+            billing.kind === "none" ? 0 : billing.kind === "usage" ? billing.inputTokens : null,
+          outputTokens:
+            billing.kind === "none" ? 0 : billing.kind === "usage" ? billing.outputTokens : null,
+        }),
       );
     } finally {
       outer?.removeEventListener("abort", abortFromOuter);

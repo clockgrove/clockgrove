@@ -53,6 +53,14 @@ export interface DecisionCallRecord {
   /** The per-call ceiling reserved before the call; 0 when it was refused before reserving. */
   readonly reservedMicrousd: number;
   readonly requestSha256: string;
+  /**
+   * Whether the call was sent to the provider. False for a refusal before it (input too large,
+   * breaker open, budget, cancelled first): that call used nothing.
+   */
+  readonly providerCalled: boolean;
+  /** The provider's reported input and output tokens; 0 when not called, null when unknown. */
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
   /** The breaker changes this call caused on its route, in order; absent when it caused none. */
   readonly breakerTransitions?: readonly BreakerTransition[];
 }

@@ -40,7 +40,9 @@ export class PostgreSqlUsageInspector {
   }
 
   query(input: UsageQueryRequest, context: TrustedExecutionContext): Promise<UsagePage> {
-    return this.audited(input, context, (authorization) => this.reader.query(authorization, input));
+    return this.audited(input, READ, context, (authorization) =>
+      this.reader.query(authorization, input),
+    );
   }
 
   /**
@@ -52,7 +54,12 @@ export class PostgreSqlUsageInspector {
     context: TrustedExecutionContext,
     deploymentSecret: string,
   ): Promise<UsageWebhookRegistration> {
-    return this.audited(input, context, async (authorization) => {
+    // Audited as a registration, naming where the export now goes; a refusal is a usage access.
+    const target: AuditTarget = {
+      subject: "usage-webhook",
+      entryId: input.url === null ? "disabled" : new URL(input.url).origin,
+    };
+    return this.audited(input, target, context, async (authorization) => {
       const webhookId = await this.webhooks.register(authorization, input.scope, input.url);
       return {
         webhookId,
@@ -65,6 +72,7 @@ export class PostgreSqlUsageInspector {
 
   private async audited<T>(
     input: { readonly scope: UsageQueryRequest["scope"] },
+    target: AuditTarget,
     context: TrustedExecutionContext,
     operation: (authorization: ReturnType<typeof worldAuthorization>) => Promise<T>,
   ): Promise<T> {
@@ -84,7 +92,7 @@ export class PostgreSqlUsageInspector {
       reasonCode = "served";
       return output;
     } finally {
-      await this.audit.record(authorization, access(input, "allow", reasonCode));
+      await this.audit.record(authorization, access(input, "allow", reasonCode, target));
     }
   }
 
@@ -101,11 +109,18 @@ export class PostgreSqlUsageInspector {
   }
 }
 
+type AuditTarget =
+  | { readonly subject: "usage-events" }
+  | { readonly subject: "usage-webhook"; readonly entryId: string };
+
+const READ: AuditTarget = { subject: "usage-events" };
+
 function access(
   input: { readonly scope: UsageQueryRequest["scope"] },
   decision: InspectorAccess["decision"],
   reasonCode: InspectorAccess["reasonCode"],
+  target: AuditTarget = READ,
 ): InspectorAccess {
   const { worldId, timelineId, spaceId } = input.scope;
-  return { subject: "usage-events", worldId, timelineId, spaceId, decision, reasonCode };
+  return { ...target, worldId, timelineId, spaceId, decision, reasonCode };
 }

@@ -310,6 +310,55 @@ describe("decide on the model gateway port", () => {
     expect(exhausted).toMatchObject({ status: "failed", code: "unavailable" });
   });
 
+  it("says whether the provider was called and carries the tokens it reported, unknown as null", async () => {
+    const records: DecisionCallRecord[] = [];
+    const decider = new ScriptedDecider({
+      [alias.route.id]: [
+        {
+          kind: "answer",
+          answer: { type: "choice", label: "stay", confidence: 0.9 },
+          inputTokens: 30,
+          outputTokens: 3,
+        },
+        { kind: "http", status: 429 },
+        // Last: its unknown cost spends the whole reservation.
+        { kind: "http", status: 503 },
+      ],
+    });
+    const models = gateway(decider, records);
+    const request = { alias: alias.alias, callId: "u1", attribution, state: "hungry", question };
+    await models.decide(request);
+    await models.decide({ ...request, callId: "u2" });
+    await models.decide({ ...request, callId: "u3" });
+    // Refused before the provider: input over the alias's 8192 bytes.
+    await models.decide({ ...request, callId: "u4", state: "x".repeat(8193) });
+    const usage = (record: DecisionCallRecord | undefined) => [
+      record?.outcome,
+      record?.providerCalled,
+      record?.inputTokens,
+      record?.outputTokens,
+    ];
+    expect(records.map(usage)).toEqual([
+      ["completed", true, 30, 3],
+      ["rate_limited", true, 0, 0],
+      ["unavailable", true, null, null],
+      ["input_too_large", false, 0, 0],
+    ]);
+    expect(decider.calls).toHaveLength(3);
+
+    // Refused by the budget before the provider: nothing sent.
+    const broke: DecisionCallRecord[] = [];
+    await createModelGateway({
+      aliases: [],
+      adapters: {},
+      decisionAliases: [alias],
+      decisionAdapters: { "vercel-ai-gateway": new ScriptedDecider({}) },
+      budget: new InMemoryModelBudget(() => 0),
+      accounting: { record: () => undefined, recordDecision: (record) => void broke.push(record) },
+    }).decide({ ...request, callId: "u5" });
+    expect(broke.map(usage)).toEqual([["budget_exceeded", false, 0, 0]]);
+  });
+
   it("records each breaker change on the decision that caused it, a trial answered by its own end", async () => {
     let clock = 1_000_000;
     const records: DecisionCallRecord[] = [];

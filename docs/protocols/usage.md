@@ -23,6 +23,10 @@ row proving the use commits; no role, the runtime's included, may insert, update
 A remote MCP call is an effect in the effect ledger, and every effect the runtime records belongs
 to a run: it is counted once, by that run's `tool_execution` step.
 
+Not yet a source: the actor-reply shadow (a moderation judgement of a committed reply, made when
+`ACTOR_REPLY_SHADOW_CONFIG` is bound) keeps no durable record, only a contentless log line, so its
+model call is not a usage event until it does.
+
 ## Shape
 
 | Field         | Meaning                                                                                   |
@@ -47,9 +51,13 @@ Quantities:
   `reasoningTokens` and `calls`, summed over every route attempt of the call (a fallback route's
   attempt counts). An attempt that never reached a provider (breaker open, credential missing)
   counts nothing, and an attempt that committed a checkpointed answer again counts no call.
-  A wake-triage or moderation-shadow decision counts `calls` 1 when it reached the model (its record
-  measured a latency) and 0 when it did not (over budget, no model configured); its token counts are
-  `null`, since the decisions endpoint reports none. It has no run: `runId` and `rootRunId` are
+  A wake-triage or moderation-shadow decision counts what its record's `usage` holds, carried from
+  the gateway's decision record: `calls` 1 when the call was sent to the provider, with the input
+  and output tokens it reported (`null` when it reported none); `calls` 0 with every token count 0
+  when nothing was sent (over budget, no model configured, or the gateway refused before the
+  provider: input too large, breaker open, budget); and `null` for every quantity when unknown (an
+  interrupted decision, whose replaced owner may have reached the provider). The decisions endpoint
+  reports no cache or reasoning tokens, so those are `null` after a call. It has no run: `runId` and `rootRunId` are
   `null`, and `status` is the decision's (`picked`, `cant_tell`, `low_confidence`, `over_budget`,
   `failed`, …).
   **Parts, not siblings:** `inputTokens` is the whole input, and `cachedInputTokens` (read from the
@@ -133,14 +141,19 @@ It answers `{ "webhookId": "…", "url": "…", "signingSecret": "whsec_…" }`.
 usage reader's grant and ceiling (as the query) and holds one webhook per space: registering again
 replaces its URL and keeps its ID, cursor and secret; `"url": null` disables it. The URL is
 `https`. A webhook posts only what its registrar may read, as the registrar: once they lose the
-grant or the ceiling, it stops. Registration is audited as subject `usage-events`.
+grant or the ceiling, it stops. Registering, replacing or disabling is audited as subject
+`usage-webhook`, its entry the URL's origin or `disabled` (never the path or query, which may carry
+the receiver's own credential); a refused registration is audited as a `usage-events` denial.
 
 The deployment sets `USAGE_WEBHOOK_SECRET`; without it the route answers 503 `inspector_unavailable` and nothing is posted.
 Each webhook's signing secret is derived from it and the webhook ID (`whsec_` and the base64 of
 HMAC-SHA256), so Clockgrove stores none; registering again returns the same secret.
 
 Every 5 minutes (the runtime's recovery cron) each due webhook gets its next events after its
-cursor, at most 100 per post:
+cursor, at most 100 per post. A webhook that is behind is drained in the same run: each full page
+delivered is followed by the next, until a short page, a failed post, or 60 s of the run have passed
+(each due webhook still gets its first page). At 1 s per post that is 6,000 events per run, 1,728,000
+a day:
 
 ```json
 { "type": "usage.events", "events": [ { "eventId": "…", "sequence": "42", … } ] }

@@ -443,3 +443,94 @@ it("states every actor-level feature once and groups disagreements only within t
       expect(line.match(new RegExp(`(?<=: |, )${name} `, "g")), name).toHaveLength(1);
   }
 });
+
+/** A shadow decider (`ShadowDecider` of @clockgrove/application). */
+type Decider = { pick: (request: unknown) => Promise<Record<string, unknown>> };
+
+const policy = {
+  policyVersion: "p1",
+  modelAlias: "shadow.default",
+  model: "fixture-model",
+  confidenceThreshold: 7000,
+  maxCostMicrousd: 1000,
+};
+const wakePolicy = { ...policy, dailyBudgetMicrousd: 6000, dailyBudgetZone: "UTC" };
+const wakeSubject = {
+  requestId: "s1:m1",
+  objectId: "keeper",
+  sessionId: "s1",
+  messageId: "m1",
+  reason: "direct_message",
+  simulationTime: "0",
+  input: "hello",
+  prompt: "hello",
+};
+const moderationSubject = {
+  sessionId: "s1",
+  messageId: "m1",
+  actorId: "keeper",
+  simulationTime: "0",
+  input: "hello",
+};
+const sent: Decider = {
+  pick: async () => ({
+    status: "completed",
+    label: "suppress",
+    confidence: 0.9,
+    model: "fixture-model",
+    latencyMs: 12,
+    costMicrousd: 40,
+    usage: { calls: 1, inputTokens: 120, outputTokens: 4 },
+  }),
+};
+const refusedBefore: Decider = {
+  pick: async () => ({
+    status: "failed",
+    code: "input_too_large",
+    model: "fixture-model",
+    latencyMs: 0,
+    costMicrousd: 0,
+    usage: { calls: 0, inputTokens: 0, outputTokens: 0 },
+  }),
+};
+const silent: Decider = {
+  pick: async () => ({
+    status: "completed",
+    label: "suppress",
+    confidence: 0.9,
+    model: "fixture-model",
+    latencyMs: 12,
+    costMicrousd: null,
+  }),
+};
+const broken: Decider = {
+  pick: async () => {
+    throw new Error("decider down");
+  },
+};
+const unknown = { calls: null, inputTokens: null, outputTokens: null };
+const none = { calls: 0, inputTokens: 0, outputTokens: 0 };
+
+it("records a shadow decision's usage: sent with its tokens, refused before as none, otherwise unknown", async () => {
+  const { judgeModeration, judgeWake } = await import(applicationUrl);
+  const wake = async (decider: Decider | undefined, reserved = true) =>
+    (await judgeWake({ subject: wakeSubject, policy: wakePolicy, decider, reserved }))
+      .usage as unknown;
+  expect(await wake(sent)).toEqual({ calls: 1, inputTokens: 120, outputTokens: 4 });
+  // The gateway refused before the provider, though it measured a latency.
+  expect(await wake(refusedBefore)).toEqual(none);
+  expect(await wake(sent, false)).toEqual(none);
+  expect(await wake(undefined)).toEqual(none);
+  expect(await wake(silent)).toEqual(unknown);
+  expect(await wake(broken)).toEqual(unknown);
+
+  const moderation = async (decider: Decider | undefined, interrupted = false) =>
+    (await judgeModeration({ subject: moderationSubject, policy, decider, interrupted }))
+      .usage as unknown;
+  expect(await moderation(sent)).toEqual({ calls: 1, inputTokens: 120, outputTokens: 4 });
+  expect(await moderation(refusedBefore)).toEqual(none);
+  expect(await moderation(undefined)).toEqual(none);
+  // An interrupted decision's replaced owner may have reached the model: unknown, never zero.
+  expect(await moderation(undefined, true)).toEqual(unknown);
+  expect(await moderation(broken)).toEqual(unknown);
+});

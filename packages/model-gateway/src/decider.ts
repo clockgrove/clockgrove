@@ -19,6 +19,9 @@ export type ScriptedDecisionStep =
       /** The answers to the call's named questions, by name. */
       answers?: Readonly<Record<string, DecisionAnswer>>;
       costUsd?: number;
+      /** The tokens the provider reported; unreported (null) when absent. */
+      inputTokens?: number;
+      outputTokens?: number;
       /** Simulated provider latency, awaited before the answer. */
       delayMs?: number;
     }>
@@ -67,8 +70,8 @@ export class ScriptedDecider implements DecisionAdapter {
     return {
       answer: step.answer,
       ...(step.answers === undefined ? {} : { answers: step.answers }),
-      inputTokens: null,
-      outputTokens: null,
+      inputTokens: step.inputTokens ?? null,
+      outputTokens: step.outputTokens ?? null,
       reportedCostUsd: step.costUsd ?? null,
       responseModel: call.route.model,
     };

@@ -4,10 +4,83 @@ ALTER TABLE clockgrove.usage_events DROP CONSTRAINT usage_events_source_check,
   ADD CONSTRAINT usage_events_source_check CHECK (
     source IN ('run_step', 'delivery_receipt', 'wake_triage', 'moderation_shadow'));
 
+-- A moderation record carries its model call's `usage` ({calls, inputTokens, outputTokens}: calls
+-- 0 or 1, or null when unknown; tokens a non-negative integer or null). Records written before it
+-- stay valid without it.
+CREATE OR REPLACE FUNCTION clockgrove.finish_moderation_shadow(t text,s text,m text,evidence jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,clockgrove AS $$
+DECLARE stored jsonb;
+BEGIN
+  -- Decision: cap an annotation at 16 KiB, matching wake-triage evidence and bounding metadata reads.
+  IF NOT clockgrove.runtime_can_access(t,'conversation') OR NOT clockgrove.runtime_conversation_participant(t,s)
+    OR jsonb_typeof(evidence) IS DISTINCT FROM 'object'
+    OR octet_length(evidence::text)>16384 OR evidence->>'mode' IS DISTINCT FROM 'shadow'
+    OR NOT evidence ?& ARRAY['schemaVersion','pointId','sessionId','messageId','actorId','simulationTime',
+      'policyVersion','confidenceThreshold','inputSha256','signature','detail','mode','status',
+      'disposition','injection','confidenceBp','modelAlias','model','latencyMs','costMicrousd']
+    OR (evidence->'schemaVersion'='2'::jsonb AND NOT evidence ? 'categories')
+    OR (evidence->'schemaVersion'='1'::jsonb AND evidence ? 'categories')
+    OR (evidence ? 'categories' AND jsonb_typeof(evidence->'categories') NOT IN ('object','null'))
+    OR (jsonb_typeof(evidence->'categories')='object' AND (
+      NOT (evidence->'categories') ?& ARRAY['sexual_minors','harm_to_others','self_harm_intent',
+        'self_harm_encouragement','stated_minor']
+      OR EXISTS (SELECT 1 FROM jsonb_each(evidence->'categories') c
+        WHERE c.key<>ALL(ARRAY['sexual_minors','harm_to_others','self_harm_intent',
+          'self_harm_encouragement','stated_minor']) OR jsonb_typeof(c.value) NOT IN ('boolean','null'))))
+    OR EXISTS (SELECT 1 FROM jsonb_object_keys(CASE WHEN jsonb_typeof(evidence)='object' THEN evidence ELSE '{}'::jsonb END) k WHERE k<>ALL(ARRAY[
+      'schemaVersion','pointId','sessionId','messageId','actorId','simulationTime','policyVersion',
+      'confidenceThreshold','inputSha256','signature','detail','mode','status','disposition','injection',
+      'confidenceBp','modelAlias','model','latencyMs','costMicrousd','categories','usage']))
+    OR (evidence ? 'usage' AND (jsonb_typeof(evidence->'usage') IS DISTINCT FROM 'object'
+      OR NOT (evidence->'usage') ?& ARRAY['calls','inputTokens','outputTokens']
+      OR EXISTS (SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(evidence->'usage')='object'
+          THEN evidence->'usage' ELSE '{}'::jsonb END) u
+        WHERE u.key<>ALL(ARRAY['calls','inputTokens','outputTokens'])
+          OR (u.value<>'null'::jsonb AND (jsonb_typeof(u.value)<>'number' OR u.value#>>'{}' !~ '^[0-9]+$'
+            OR CASE WHEN u.value#>>'{}' ~ '^[0-9]+$' THEN (u.value#>>'{}')::numeric>9007199254740991 ELSE false END))
+          OR (u.key='calls' AND u.value NOT IN ('null'::jsonb,'0'::jsonb,'1'::jsonb)))))
+    OR coalesce(evidence->>'schemaVersion','') NOT IN ('1','2')
+    OR evidence->>'pointId' IS DISTINCT FROM 'moderation-shadow'
+    OR coalesce(evidence->>'status','') NOT IN ('picked','low-confidence','cant-tell','failed','skipped')
+    OR jsonb_typeof(evidence->'disposition') NOT IN ('string','null')
+    OR (evidence->'disposition'<>'null'::jsonb AND evidence->>'disposition' NOT IN ('allow','flag','block'))
+    OR jsonb_typeof(evidence->'injection') NOT IN ('boolean','null')
+    OR jsonb_typeof(evidence->'model') NOT IN ('string','null')
+    OR jsonb_typeof(evidence->'detail') NOT IN ('string','null')
+    OR jsonb_typeof(evidence->'modelAlias') IS DISTINCT FROM 'string'
+    OR length(evidence->>'modelAlias')=0
+    OR jsonb_typeof(evidence->'policyVersion') IS DISTINCT FROM 'string'
+    OR length(evidence->>'policyVersion')=0
+    OR coalesce(evidence->>'inputSha256','') !~ '^[0-9a-f]{64}$'
+    OR coalesce(evidence->>'signature','') !~ '^moderation_[0-9a-f]{32}$'
+    OR coalesce(evidence->>'simulationTime','') !~ '^[0-9]+$'
+    OR EXISTS (SELECT 1 FROM (VALUES ('confidenceBp'),('latencyMs'),('costMicrousd')) AS fields(name)
+      WHERE evidence->name<>'null'::jsonb AND (jsonb_typeof(evidence->name)<>'number'
+        OR evidence->>name !~ '^[0-9]+$'
+        OR CASE WHEN evidence->>name ~ '^[0-9]+$' THEN (evidence->>name)::numeric>9007199254740991 ELSE false END))
+    OR (CASE WHEN evidence->>'confidenceBp' ~ '^[0-9]+$' THEN (evidence->>'confidenceBp')::numeric>10000 ELSE false END)
+    OR jsonb_typeof(evidence->'confidenceThreshold') IS DISTINCT FROM 'number'
+    OR coalesce(evidence->>'confidenceThreshold','') !~ '^[0-9]+$'
+    OR (CASE WHEN evidence->>'confidenceThreshold' ~ '^[0-9]+$' THEN (evidence->>'confidenceThreshold')::numeric>10000 ELSE false END)
+    OR evidence->>'sessionId' IS DISTINCT FROM s OR evidence->>'messageId' IS DISTINCT FROM m
+    OR evidence->>'actorId' IS DISTINCT FROM (SELECT actor_id FROM clockgrove.moderation_shadow
+      WHERE tenant_id=t AND session_id=s AND message_id=m AND principal_id=clockgrove.runtime_principal_id())
+    OR NOT EXISTS (SELECT 1 FROM clockgrove.conversation_sessions WHERE tenant_id=t AND session_id=s AND state<>'deleted')
+    THEN RAISE EXCEPTION 'moderation shadow refused'; END IF;
+  UPDATE clockgrove.moderation_shadow SET record=evidence WHERE tenant_id=t AND session_id=s AND message_id=m
+    AND principal_id=clockgrove.runtime_principal_id() AND record IS NULL;
+  SELECT record INTO stored FROM clockgrove.moderation_shadow WHERE tenant_id=t AND session_id=s AND message_id=m
+    AND principal_id=clockgrove.runtime_principal_id();
+  IF stored IS NULL THEN RAISE EXCEPTION 'moderation shadow refused'; END IF;
+  RETURN stored;
+END $$;
+
 -- One event per shadow decision whose record is finished: the model call a wake triage or a
--- moderation shadow made outside any run. `calls` is 1 only when the record shows a call was made
--- (it carries a latency); the provider's token counts are not recorded, so they stay unknown.
--- The source and the event id's prefix are the table's name.
+-- moderation shadow made outside any run. Its quantities are the record's `usage`: `calls` 1 when
+-- the call was sent to the provider, 0 when it was refused before (then its tokens are 0), and
+-- null when unknown (an interrupted decision whose earlier owner may have called). The decisions
+-- endpoint reports no cache or reasoning tokens: unknown, or 0 without a call. A record without
+-- `usage` reports nothing known. The source and the event id's prefix are the table's name.
 CREATE FUNCTION clockgrove.record_shadow_usage() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, clockgrove AS $$
 BEGIN
@@ -28,9 +101,16 @@ BEGIN
       WHERE f.tenant_id = NEW.tenant_id AND f.session_id = NEW.session_id
         AND f.message_id = NEW.message_id),
     NEW.actor_id, NEW.session_id,
-    jsonb_build_object('inputTokens', NULL, 'cachedInputTokens', NULL,
-      'cacheWriteInputTokens', NULL, 'outputTokens', NULL, 'reasoningTokens', NULL,
-      'calls', CASE WHEN jsonb_typeof(NEW.record->'latencyMs') = 'number' THEN 1 ELSE 0 END),
+    jsonb_build_object(
+      'inputTokens', coalesce(NEW.record->'usage'->'inputTokens', 'null'::jsonb),
+      'cachedInputTokens', CASE WHEN NEW.record->'usage'->'calls' = '0'::jsonb THEN '0'::jsonb
+        ELSE 'null'::jsonb END,
+      'cacheWriteInputTokens', CASE WHEN NEW.record->'usage'->'calls' = '0'::jsonb THEN '0'::jsonb
+        ELSE 'null'::jsonb END,
+      'outputTokens', coalesce(NEW.record->'usage'->'outputTokens', 'null'::jsonb),
+      'reasoningTokens', CASE WHEN NEW.record->'usage'->'calls' = '0'::jsonb THEN '0'::jsonb
+        ELSE 'null'::jsonb END,
+      'calls', coalesce(NEW.record->'usage'->'calls', 'null'::jsonb)),
     statement_timestamp(), NEW.simulation_time
   ) ON CONFLICT (tenant_id, event_id) DO NOTHING;
   RETURN NULL;

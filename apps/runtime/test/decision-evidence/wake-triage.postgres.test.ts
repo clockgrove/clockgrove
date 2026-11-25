@@ -19,6 +19,9 @@ const script = [
     kind: "answer",
     answer: { type: "choice", label: "suppress", confidence: 0.9 },
     costUsd: 0.0001,
+    // The provider's reported tokens reach the usage event through the decision record.
+    inputTokens: 120,
+    outputTokens: 4,
   },
   {
     kind: "answer",
@@ -196,14 +199,27 @@ it.skipIf(!isNativeWorldOwnerChild())(
           FROM clockgrove.usage_events u WHERE source = 'wake_triage'`,
         ),
       );
-      const quantities = (calls: number) => ({
-        inputTokens: null,
+      // A call sent to the provider: its reported tokens, or null when it reported none.
+      const quantities = (
+        inputTokens: number | null = null,
+        outputTokens: number | null = null,
+      ) => ({
+        inputTokens,
         cachedInputTokens: null,
         cacheWriteInputTokens: null,
-        outputTokens: null,
+        outputTokens,
         reasoningTokens: null,
-        calls,
+        calls: 1,
       });
+      // Nothing was sent: every quantity is a known zero.
+      const noCall = {
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+        calls: 0,
+      };
       expect(usage.shared).toEqual([
         [
           "wake_triage",
@@ -220,13 +236,13 @@ it.skipIf(!isNativeWorldOwnerChild())(
       ]);
       expect(usage.keyed).toBe(usage.calls.length);
       expect(usage.calls).toEqual([
-        ["cant_tell", quantities(1)],
-        ["failed", quantities(1)],
-        ["low_confidence", quantities(1)],
-        ["low_confidence", quantities(1)],
-        ["over_budget", quantities(0)],
-        ["picked", quantities(1)],
-        ["picked", quantities(1)],
+        ["cant_tell", quantities()],
+        ["failed", quantities()],
+        ["low_confidence", quantities()],
+        ["low_confidence", quantities()],
+        ["over_budget", noCall],
+        ["picked", quantities(120, 4)],
+        ["picked", quantities()],
       ]);
       const companion = await owner.request(
         "/v1/runtime/conversations/create",

@@ -1,5 +1,10 @@
 import { canonicalBytes, sha256Hex } from "@clockgrove/kernel";
-import type { ShadowDecider } from "./decision-shadow.js";
+import {
+  SHADOW_NO_CALL,
+  SHADOW_USAGE_UNKNOWN,
+  type ShadowDecider,
+  type ShadowUsage,
+} from "./decision-shadow.js";
 
 export interface WakeTriagePolicy {
   readonly policyVersion: string;
@@ -52,6 +57,8 @@ export interface WakeTriageRecord
   readonly suppressionCause: string;
   readonly latencyMs: number | null;
   readonly costMicrousd: number | null;
+  /** The model call's usage, the source of its usage event. */
+  readonly usage: ShadowUsage;
 }
 export interface WakeTriageTruth {
   readonly disposition: string;
@@ -139,11 +146,13 @@ export async function judgeWake(input: {
   let suppressionCause = "model-unavailable";
   let latencyMs: number | null = null;
   let costMicrousd: number | null = 0;
+  let usage: ShadowUsage = SHADOW_NO_CALL;
   if (!input.reserved) {
     status = "over-budget";
     suppressionCause = "daily-budget-exhausted";
   } else if (input.decider !== undefined) {
     costMicrousd = null;
+    usage = SHADOW_USAGE_UNKNOWN;
     try {
       const result = await input.decider.pick({
         alias: policy.modelAlias,
@@ -152,6 +161,7 @@ export async function judgeWake(input: {
       });
       latencyMs = Math.round(result.latencyMs);
       costMicrousd = result.costMicrousd;
+      usage = result.usage ?? SHADOW_USAGE_UNKNOWN;
       if (result.status === "failed") suppressionCause = result.code;
       else if (!Object.hasOwn(OPTIONS, result.label)) suppressionCause = "unknown-label";
       else {
@@ -191,6 +201,7 @@ export async function judgeWake(input: {
     suppressionCause,
     latencyMs,
     costMicrousd,
+    usage,
   };
 }
 const terminal = (row: WakeTriageObservation) =>

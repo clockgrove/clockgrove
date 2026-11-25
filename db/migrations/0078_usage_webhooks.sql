@@ -75,3 +75,19 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, clockgrove AS
 $$;
 REVOKE ALL ON FUNCTION clockgrove.due_usage_webhooks(integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION clockgrove.due_usage_webhooks(integer) TO clockgrove_runtime;
+
+-- Registering, replacing or disabling a webhook starts or stops a standing export of the space's
+-- usage, so it is audited as its own subject, not as a usage read. Its entry is where the export
+-- now goes: the URL's origin, or `disabled`. The path and query are not kept, since they may carry
+-- the receiver's own credential.
+ALTER TABLE clockgrove.inspector_accesses
+  DROP CONSTRAINT inspector_accesses_subject_check,
+  DROP CONSTRAINT inspector_accesses_subject_entry,
+  ADD CONSTRAINT inspector_accesses_subject_check CHECK (
+    subject IN (
+      'causal-chain', 'runtime-state', 'event', 'scheduled-action', 'client-view', 'agent-runs',
+      'context-manifest', 'actor-documents', 'usage-events', 'usage-webhook'
+    )
+  ),
+  ADD CONSTRAINT inspector_accesses_subject_entry
+    CHECK ((subject IN ('event', 'scheduled-action', 'usage-webhook')) = (entry_id IS NOT NULL));

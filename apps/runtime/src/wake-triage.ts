@@ -3,6 +3,7 @@ import {
   JOURNAL_EVENT_REGISTRY,
   journalWakeTriage,
   judgeWake,
+  SHADOW_USAGE_UNKNOWN,
   type ShadowDecider,
   type TurnFiber,
   type TurnInput,
@@ -153,6 +154,8 @@ export async function shadowActorWake(
           ...record,
           suppressionCause: "interrupted-decision",
           costMicrousd: null,
+          // The replaced owner may have reached the model: unknown, never zero.
+          usage: SHADOW_USAGE_UNKNOWN,
           signature: `${record.signature}:interrupted`,
         }
       : record;

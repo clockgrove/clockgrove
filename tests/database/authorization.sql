@@ -2857,10 +2857,11 @@ END;
 $$;
 ROLLBACK;
 
--- Usage webhooks (0078): a row is its registrar's alone, and only while the registrar reads the space's
--- usage. A member without the inspect grant, a ceiling without operator evidence and another tenant
--- can register, see and move none; no role deletes or re-attributes one. The registrar's own
--- reads and writes are proved through the runtime journey (apps/runtime/test/usage-webhooks.journey).
+-- Usage webhooks (0078), as the runtime login with no webhook row: a fixture member without the
+-- inspect grant, in its own tenant and in another, cannot register one, and no runtime context
+-- deletes or re-attributes one. The checks against a registered row (hostile contexts, a ceiling
+-- without operator evidence, a registrar who lost the grant) are in tests/database/usage-webhooks.sql,
+-- run as the owner so it can seed the registrar.
 BEGIN;
 SELECT pg_temp.act_as('tenant-a', 'principal-a', '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}');
 DO $$

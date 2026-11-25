@@ -304,14 +304,15 @@ it("records private reversible shadow judgements and reports independent accurac
         FROM clockgrove.usage_events u WHERE source = 'moderation_shadow'`,
       ),
     );
-    const quantities = (calls: number) => ({
+    // Each call was sent to the provider, which reported no tokens.
+    const sent = {
       inputTokens: null,
       cachedInputTokens: null,
       cacheWriteInputTokens: null,
       outputTokens: null,
       reasoningTokens: null,
-      calls,
-    });
+      calls: 1,
+    };
     expect(usage.shared).toEqual([
       [
         "moderation_shadow",
@@ -328,10 +329,10 @@ it("records private reversible shadow judgements and reports independent accurac
     ]);
     expect(usage.keyed).toBe(usage.calls.length);
     expect(usage.calls).toEqual([
-      ["cant_tell", quantities(1)],
-      ["failed", quantities(1)],
-      ["low_confidence", quantities(1)],
-      ...Array.from({ length: 5 }, () => ["picked", quantities(1)]),
+      ["cant_tell", sent],
+      ["failed", sent],
+      ["low_confidence", sent],
+      ...Array.from({ length: 5 }, () => ["picked", sent]),
     ]);
     delete process.env.NATIVE_MODERATION_SHADOW_SCRIPT;
     await owner.replace(false);
