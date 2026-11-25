@@ -343,7 +343,9 @@ type the caller's ceiling may read, not only the feed's, each with its envelope'
 stored birth (`replayToSequence`) and answers the rebuilt revision, simulation time, rain, state hash,
 each entity's location and selected action, and `matchesLive` when the position is the projection's
 covered head. Replay reads under the caller's own authority, so a journal holding a row above its
-ceiling answers `{ status: "unavailable" }` rather than a replay; nothing is written but the audit
+ceiling answers `{ status: "unavailable" }` rather than a replay, as does a position more than
+2,000 events past its start (the snapshot interval; a host that runs no snapshot sweep starts from
+birth); nothing is written but the audit
 row. It needs `runtime:world-inspect` and an `operator_evidence` ceiling, like the causal chain,
 and is audited with subject `journal` (migration 0079); observation-only callers receive 403
 `authorization_refused`, an unknown space 404 `space_not_found` and an exhausted inspector limit 429

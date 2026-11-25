@@ -11,6 +11,7 @@ import type {
   RunWalk,
 } from "@clockgrove/contracts";
 import { useEffect, useState } from "react";
+import { ApiRefusal } from "./api.js";
 import { playgroundHosted } from "./playground-pack.js";
 import type { DebuggerJournalPage, SceneSession } from "./scene-api.js";
 import { whyOpener } from "./why.js";
@@ -30,7 +31,9 @@ interface PackChecks {
 
 /**
  * At most 20 history windows (2,000 journal positions, `PostgreSqlObjectHistoryReader`'s 100 each)
- * per Show decisions: the public entity read is not rate limited, so this bounds one click's reads.
+ * per Show decisions, counting a window the world's moving revision refused (each such refusal adds
+ * one current-revision read): the public entity read is not rate limited, so this bounds one click's
+ * reads at 39.
  */
 const DECISION_PAGES = 20;
 const ACTOR_NEEDS = ["hunger", "thirst", "wetness", "health", "rain", "uncomfortable", "U"];
@@ -51,6 +54,8 @@ export function cost(
     : `at least ${total} (${priced.length - known.length} of ${priced.length} priced steps without a known cost)`;
 }
 
+const refusalOf = (error: unknown) =>
+  error instanceof ApiRefusal ? `status ${error.status}` : "runtime unavailable";
 const list = (ids: readonly string[]) => (ids.length === 0 ? "None" : ids.join(", "));
 const describe = (action: {
   readonly kind: string;
@@ -236,10 +241,16 @@ function DebuggerTimeline({
 }) {
   const events =
     journal !== undefined && !("refused" in journal) ? [...journal.events].reverse() : [];
-  const [position, setPosition] = useState<number>();
+  // The chosen journal position, not its index: loading older events or a newer head moves indexes.
+  const [chosen, setChosen] = useState<string>();
   const [replay, setReplay] = useState<DebuggerJournalPage["replay"] | Refused>();
-  const index = position === undefined ? events.length - 1 : Math.min(position, events.length - 1);
+  const found = events.findIndex((event) => event.partitionSequence === chosen);
+  const index = found === -1 ? events.length - 1 : found;
   const current = events[index];
+  const step = (to: number) => {
+    const event = events[Math.max(0, Math.min(events.length - 1, to))];
+    if (event !== undefined) setChosen(event.partitionSequence);
+  };
   const replayTo = (sequence: string) => {
     void session
       .readJournal({ replayTo: sequence })
@@ -253,17 +264,13 @@ function DebuggerTimeline({
       ) : (
         <>
           <p>{`Position ${index + 1} of ${events.length}: #${current.partitionSequence} ${current.type} at simulation time ${current.simulationTime}.`}</p>
-          <button
-            type="button"
-            aria-disabled={index === 0}
-            onClick={() => setPosition(Math.max(0, index - 1))}
-          >
+          <button type="button" aria-disabled={index === 0} onClick={() => step(index - 1)}>
             Earlier position
           </button>
           <button
             type="button"
             aria-disabled={index === events.length - 1}
-            onClick={() => setPosition(Math.min(events.length - 1, index + 1))}
+            onClick={() => step(index + 1)}
           >
             Later position
           </button>
@@ -453,24 +460,36 @@ function DebuggerActors({
       // the cursor until 5 decisions are found, the history ends or the page bound is reached.
       const decisions = selection.history.actions.filter((action) => action.decision === true);
       let cursor = selection.history.beforeSequence;
+      let revision = selection.history.observedRevision;
       let pages = 1;
       let stopped: string | undefined;
       while (decisions.length < 5 && cursor !== null) {
         if (pages >= DECISION_PAGES) {
-          stopped = `Read the newest ${pages} history windows; older decisions were not read.`;
+          stopped = `Read ${pages} history windows; older decisions were not read.`;
           break;
         }
+        pages += 1;
         try {
           const older = await session.readEntity(objectId, {
-            observedRevision: selection.history.observedRevision,
+            observedRevision: revision,
             beforeSequence: cursor,
           });
           decisions.push(...older.history.actions.filter((action) => action.decision === true));
           cursor = older.history.beforeSequence;
-          pages += 1;
-        } catch {
-          stopped = "The world moved on while its history was read; older decisions were not read.";
-          break;
+        } catch (error) {
+          // A cursor names the revision it was read at; the world moving on answers 409
+          // (selection_unavailable). The journal below the cursor does not change, so read the
+          // current revision and go on from the same cursor. Any other refusal stops and says so.
+          if (!(error instanceof ApiRefusal) || error.status !== 409) {
+            stopped = `History read refused (${refusalOf(error)}); older decisions were not read.`;
+            break;
+          }
+          try {
+            revision = (await session.readEntity(objectId)).history.observedRevision;
+          } catch (current) {
+            stopped = `History read refused (${refusalOf(current)}); older decisions were not read.`;
+            break;
+          }
         }
       }
       const shown = decisions.slice(0, 5);

@@ -1,5 +1,6 @@
 import {
   AuthorizationRefusedError,
+  isSnapshotCompatible,
   JOURNAL_EVENT_REGISTRY,
   JournalRangeReader,
   JournalReadIntegrityError,
@@ -9,6 +10,7 @@ import {
   ReplayIntegrityError,
   type RuntimeAuthorizationDenial,
   replayToSequence,
+  snapshotCompatibility,
 } from "@clockgrove/application";
 import { ContractDecodeError, decodeBrowserScope, type PrincipalId } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
@@ -85,6 +87,15 @@ export interface JournalPage {
   readonly beforeSequence: string | null;
   readonly replay?: JournalReplay;
 }
+
+/**
+ * Decision: one replay folds at most 2,000 events past its start, the snapshot sweep's interval
+ * (`SNAPSHOT_INTERVAL_EVENTS`, cloudflare-entry.ts) and one replay page (`REPLAY_PAGE`,
+ * partition-replay.ts). Where the sweep runs, every position is within it of a snapshot; where it
+ * does not (the local hosts run no Cron Trigger), a position further from birth is unavailable
+ * instead of a fold of the whole journal in one request.
+ */
+const REPLAY_LIMIT_EVENTS = 2_000n;
 
 const KEYS = ["schemaVersion", "tenantId", "worldId", "timelineId", "spaceId"];
 const OPTIONAL = ["beforeSequence", "replayTo"];
@@ -240,6 +251,15 @@ export class PostgreSqlJournalInspector {
     const snapshots = this.replayPorts.snapshots;
     const committed = await snapshots.readCommitted(authorization, partition);
     if (committed === undefined) return unavailable("no committed state readable");
+    const compatibility = snapshotCompatibility(committed.packContentHash);
+    const start =
+      (await snapshots.list(authorization, partition, to)).findLast((ref) =>
+        isSnapshotCompatible(ref.compatibility, compatibility),
+      )?.coveredPartitionSequence ?? 0n;
+    if (to - start > REPLAY_LIMIT_EVENTS)
+      return unavailable(
+        `${to - start} events past ${start === 0n ? "the world's birth" : `the snapshot at #${start}`}; a replay folds at most ${REPLAY_LIMIT_EVENTS} events and no snapshot is nearer`,
+      );
     try {
       const replayed = await replayToSequence(
         authorization,
@@ -279,9 +299,14 @@ export class PostgreSqlJournalInspector {
           })),
       };
     } catch (error) {
-      // A row above the caller's ceiling is a gap to its reader: replay is not possible for it.
+      // A row above the caller's ceiling is a gap to its reader, so only a gap may be the ceiling;
+      // every other reason is a damaged journal or an unregistered event, and says so.
       if (error instanceof JournalReadIntegrityError)
-        return unavailable(`journal ${error.reason} under your privacy ceiling`);
+        return unavailable(
+          error.reason === "sequence-gap"
+            ? "journal sequence-gap: an event above your privacy ceiling, or a missing one"
+            : `journal integrity failure (${error.reason})`,
+        );
       if (error instanceof ReplayIntegrityError) return unavailable(`replay ${error.reason}`);
       throw error;
     }

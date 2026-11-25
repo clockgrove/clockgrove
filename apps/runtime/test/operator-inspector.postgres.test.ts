@@ -43,6 +43,8 @@ describe("runtime-state inspector and operator actions", () => {
         };
         const state = () =>
           owner.request("/v1/runtime/runtime-state", { schemaVersion: 1, ...scope });
+        // Issue 327: the world debugger's journal checks the same grant and the operator_evidence ceiling.
+        const journal = () => owner.request("/v1/runtime/journal", { schemaVersion: 1, ...scope });
         const act = (action: string, key: string) =>
           owner.request("/v1/runtime/actions", {
             schemaVersion: 1,
@@ -100,6 +102,7 @@ describe("runtime-state inspector and operator actions", () => {
 
         // Diagnosis: the inspector's grant, refusal codes and audit; canonical and operational labels.
         expect(await state()).toEqual(refused);
+        expect(await journal()).toEqual(refused);
         await grant("runtime:world-inspect");
         const served = await state();
         expect(served.status).toBe(200);
@@ -155,8 +158,13 @@ describe("runtime-state inspector and operator actions", () => {
         expect(redacted.worldReactions.value.unconsumed).toBeNull();
         expect(redacted.worldReactions.value.oldest).toEqual([]);
         await sql(
+          `UPDATE clockgrove.world_memberships SET privacy_ceiling = '{"version":1,"allowedCategories":["public_scene"]}'`,
+        );
+        expect(await journal()).toEqual(refused);
+        await sql(
           `UPDATE clockgrove.world_memberships SET privacy_ceiling = '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}'`,
         );
+        expect((await journal()).status).toBe(200);
         expect(
           await sql(
             "SELECT string_agg(concat_ws('|', subject, coalesce(command_id, '-'), decision, reason_code), ',' ORDER BY access_id) FROM clockgrove.inspector_accesses",
@@ -164,8 +172,11 @@ describe("runtime-state inspector and operator actions", () => {
         ).toBe(
           [
             "runtime-state|-|deny|runtime-grant-missing",
+            "journal|-|deny|runtime-grant-missing",
             "runtime-state|-|allow|served",
             "runtime-state|-|allow|served",
+            "journal|-|deny|authority-mismatch",
+            "journal|-|allow|served",
           ].join(","),
         );
 
