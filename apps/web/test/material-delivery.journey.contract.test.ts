@@ -235,5 +235,6 @@ it("applies set_surfaces patches and keeps surfaces to the projected scene", () 
   ]);
   expect(left.surfaces?.zones.map((item) => item.zoneId)).toEqual(["floor"]);
   expect(left.surfaces?.zones[0]?.marks).toEqual([{ ...mark, actorId: null }]);
+  expect(left.surfaces?.zones[0]?.sentence).toBe("The hall floor is scratched.");
   expect(step(scratched, [{ op: "set_surfaces", surfaces: null }])).not.toHaveProperty("surfaces");
 });

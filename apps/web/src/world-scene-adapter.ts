@@ -9,6 +9,7 @@ import {
   type SceneMaterialDelivery,
   type ScenePatch,
   type SceneProjection,
+  type SceneSurfaceZone,
   type SceneTransientCue,
   type WorldObjectId,
 } from "@clockgrove/contracts";
@@ -229,6 +230,33 @@ export function cyclePick(
   };
 }
 
+/**
+ * A zone's sentence once its most recent marker may have left: the runtime ends a sentence naming
+ * that marker with "; most recently by <label>." (its presentation binding's label, else its scene
+ * label), and a client whose patch removed the marker drops that clause, as the next
+ * `set_surfaces` would.
+ */
+function unnamedSentence(
+  zone: SceneSurfaceZone,
+  entities: ReadonlyMap<string, unknown>,
+  before: SceneProjection,
+): string | null {
+  const marker = zone.marks.at(-1)?.actorId ?? null;
+  if (zone.sentence === null || marker === null || entities.has(marker)) return zone.sentence;
+  const labels = [
+    before.presentationBindings.find((binding) => binding.objectId === marker)?.accessibilityLabel,
+    before.entities.find((entity) => entity.objectId === marker)?.presentation.label,
+    marker,
+  ];
+  for (const label of labels) {
+    const clause = `; most recently by ${label}.`;
+    if (label !== undefined && zone.sentence.endsWith(clause)) {
+      return `${zone.sentence.slice(0, -clause.length)}.`;
+    }
+  }
+  return zone.sentence;
+}
+
 /** Apply an already decoded contiguous patch, then validate the complete projected state. */
 export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): SceneProjection {
   const entities = new Map(scene.entities.map((entity) => [entity.objectId, entity]));
@@ -327,7 +355,8 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
     ...(effects && { effects }),
     ...(lighting && { lighting }),
     ...(moving && moving.length > 0 && { movements: moving }),
-    // A zone on an object the patch removed leaves the scene with it; a removed marker is unnamed.
+    // A zone on an object the patch removed leaves the scene with it; a removed marker is unnamed,
+    // in its marks and in the sentence.
     ...(surfaces && {
       surfaces: {
         ...surfaces,
@@ -340,6 +369,7 @@ export function applyScenePatch(scene: SceneProjection, patch: ScenePatch): Scen
                 ? mark
                 : { ...mark, actorId: null },
             ),
+            sentence: unnamedSentence(zone, entities, scene),
           })),
       },
     }),

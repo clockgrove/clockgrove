@@ -26,7 +26,6 @@ import {
   decodeScenePresentations,
   type ScenePresentationInput,
   SurfaceDecalBudgetRefusedError,
-  sceneSurfaces,
 } from "../src/scene-presentation.js";
 import { RuntimeWorker } from "../src/worker.js";
 import { livingHallAuthentication } from "./living-hall-fixture.js";
@@ -41,8 +40,9 @@ import {
 
 // Issue 267: the scene draws a zone's band through the world's per-tier treatment, its recent marks
 // and the text path's sentence, all from state, the same live, in a patch to an open scene and in a
-// flashback of the moment; an unprojected marker is never named, and a decal budget too small for
-// the pack's marks is refused with its stable code on the socket and the flashback route.
+// flashback of the moment; a marker the read's scene does not project is never named, and a decal
+// budget too small for the pack's marks is refused with its stable code on the socket and the
+// flashback route.
 it("projects a scratched zone's treatment, marks and sentence from state, the same live and replayed", async () => {
   await withDisposableDatabase(async (fixture: DatabaseFixture) => {
     await applyMigrations(fixture.tools, fixture.environment);
@@ -224,61 +224,73 @@ it("projects a scratched zone's treatment, marks and sentence from state, the sa
         { op: "set_surfaces", surfaces },
       ]);
 
-      // A marker the scene does not project is never named there: no actor id, no "by" clause.
-      const birth = world.birth.state;
-      const marked = {
-        ...birth,
-        surfaces: {
-          ...birth.surfaces!,
-          zones: birth.surfaces!.zones.map((zone) =>
-            zone.zoneId !== "cedar-bark"
-              ? zone
-              : {
-                  ...zone,
-                  channels: zone.channels.map((entry) =>
-                    entry.channel === "wear" ? { ...entry, value: 300 } : entry,
-                  ),
-                  marks: [
-                    {
-                      actorId: decodeOpaqueId("fixture.keeper", "ObjectId"),
-                      interactionId: "scratch",
-                      at: birth.simulationTime,
-                      intensity: 10000,
-                      point: { u: 3000, v: 7000 },
-                    },
-                  ],
-                },
-          ),
-        },
+      // A marker the scene does not project is never named there: a visitor belonging to another
+      // space, standing in the neighborhood's garden, digs the bed; the neighborhood's scene, read
+      // through the real reader for this audience, shows the dig with no actor id and no "by" clause.
+      const commit = async (command: ReturnType<typeof advanceCommand>) => {
+        const result = await executeWorldCommand(commandRequest(provisioned, command), {
+          journal: new PostgreSqlWorldCommandJournal(client),
+          behavior: provisioned.behavior,
+        });
+        expect(result.outcome).toBe("committed");
       };
-      const cedar = decodeOpaqueId("fixture.cedar", "ObjectId");
-      const keeper = decodeOpaqueId("fixture.keeper", "ObjectId");
-      const bark = (projected: ReadonlySet<typeof cedar>) =>
-        sceneSurfaces(
-          { packId: world.behavior.packId },
-          world.behavior.policy,
-          marked,
-          [],
-          projected,
-          () => "Keeper, a resident",
-          presentations,
-        )?.zones.find((zone) => zone.zoneId === "cedar-bark");
-      expect(bark(new Set([cedar, keeper]))).toMatchObject({
-        marks: [{ actorId: "fixture.keeper" }],
-        sentence: "The cedar's bark is scratched; most recently by Keeper, a resident.",
-      });
-      const unseen = bark(new Set([cedar]));
-      expect(unseen).toMatchObject({
-        marks: [{ actorId: null, intensity: 10000, point: { u: 3000, v: 7000 } }],
-        sentence: "The cedar's bark is scratched.",
-      });
+      const readScene = () =>
+        new PostgreSqlSceneStreamReader(client, presentations).read(
+          attachment,
+          null,
+          context,
+          facts,
+        );
+      const head = async () => (await readScene()).projection.revision;
+      await commit({
+        ...advanceCommand(world, "surface-visitor", 0n, await head()),
+        type: "object.create",
+        payload: {
+          schemaVersion: 1,
+          object: {
+            objectId: "fixture.visitor",
+            archetypeId: "fixture.resident-kind@1",
+            spatial: {
+              spaceId: "fixture.zz-household-store",
+              pose: { frameId: "frame-grove", frameVersion: 1, coordinates: [22000n, 8000n] },
+            },
+          },
+        },
+      } as unknown as ReturnType<typeof advanceCommand>);
+      await commit({
+        ...advanceCommand(world, "surface-dig", 0n, await head()),
+        type: "surface.interact",
+        attribution: { effectiveActorId: "fixture.visitor", causalRootActionId: "action-dig" },
+        payload: {
+          schemaVersion: 1,
+          actorId: "fixture.visitor",
+          zoneId: "garden-bed",
+          interactionId: "dig",
+          intensity: 10000,
+          point: { u: 5000, v: 5000 },
+        },
+      } as unknown as ReturnType<typeof advanceCommand>);
+      const after = await readScene();
+      expect(after.projection.entities.map((entity) => entity.objectId)).not.toContain(
+        "fixture.visitor",
+      );
+      const garden = after.projection.surfaces?.zones.find((zone) => zone.zoneId === "garden-bed");
+      expect(garden?.marks).toEqual([
+        { actorId: null, at, intensity: 10000, point: { u: 5000, v: 5000 } },
+      ]);
+      expect(garden?.sentence).toBe("The garden bed is muddy, has a shallow hole dug in it.");
+      // The keeper, projected, is still named on the bark it scratched.
+      expect(
+        after.projection.surfaces?.zones.find((zone) => zone.zoneId === "cedar-bark")?.sentence,
+      ).toBe("The cedar's bark is scratched; most recently by Keeper, a resident.");
       // The decoder refuses a scene that names an actor it does not project.
+      const cedar = decodeOpaqueId("fixture.cedar", "ObjectId");
       expect(() =>
         decodeSceneSurfaces(
           {
             decals: surfaces?.decals,
             zones: [
-              { ...unseen, marks: [{ ...unseen?.marks[0], actorId: "fixture.keeper", at: "0" }] },
+              { ...garden, marks: [{ ...garden?.marks[0], actorId: "fixture.visitor", at: "0" }] },
             ],
           },
           "surfaces",

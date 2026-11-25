@@ -135,8 +135,10 @@ absent when the installed presentation binds no surface, names only projected ob
 as mark actors (a mark left by an actor the scene does not project carries `actorId: null`, and the
 sentence then names no one), and is projection version 2 like `effects`. `set_surfaces` replaces it
 whole (`null` removes it); a patch carries it only when the projection has the field or had it. A
-client applying a patch drops a zone whose host object the patch removed and nulls a removed mark
-actor, so the applied scene still names only projected entities until the next `set_surfaces`.
+client applying a patch drops a zone whose host object the patch removed, nulls a removed mark
+actor and, when that actor left the zone's most recent mark, drops the sentence's closing "most
+recently by" clause, so the applied scene still names only projected entities until the next
+`set_surfaces`.
 
 A successor patch carries `fromRevision`, `toRevision`, ordered closed operations, authorized
 source event IDs and audience hash. Revisions must advance. Operations name the public snapshot
