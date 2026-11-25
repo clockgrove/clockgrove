@@ -64,3 +64,8 @@ events are equal once the optional `surfaces` and `notices` fields of `movement.
 Outside the goldens, the decision-shadow journey's final state hash of a reference-fixture day becomes
 `8134921563bfcc1e5251231833e6077bf97b9c5bfa558e7c5cad0d5dc1697321`: its state now holds the declared surfaces.
 No assertion is widened.
+The Journal parity run lists `surface-marks` with the other committed scenarios, so it also runs through
+PostgreSQL and must match the pure simulator. The activations journey's long fixture run journals the
+fixture's mud crossings and their split weather integrations, so its later needs crossings sit four and
+five partition events further on (`event:1056`, `event:3050`, formerly `1052` and `3045`), with the same
+actors, needs and wake outcomes.

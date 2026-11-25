@@ -25,6 +25,7 @@ export const SCENARIOS = [
   ["fixture/reference", "rain-shelter-comfort"],
   ["fixture/reference", "social-learning"],
   ["fixture/reference", "street-dwell"],
+  ["fixture/reference", "surface-marks"],
   ["fixture/reference", "walk-crossings"],
   ["fixture/reference", "walk-out-of-den"],
   ["playground", "weathered-rock"],
