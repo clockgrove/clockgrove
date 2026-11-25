@@ -72,7 +72,7 @@ COMMIT;
 --   operator_read   SELECT only, scoped to command-authorized operator evidence; writes only
 --                   through the wake-triage reservation and completion functions (0041)
 --   registrar       SELECT, INSERT and UPDATE, each row only of the principal who registered it and
---                   only while they read the space's usage (usage webhooks, 0080)
+--                   only while they read the space's usage (usage webhooks, 0082)
 --   none            nothing; the attack suite proves the runtime role reads and writes nothing
 --                   (inspector_accesses is appended only through record_inspector_access, and
 --                   runtime_operator_actions only through record_runtime_operator_action)
@@ -2857,7 +2857,7 @@ END;
 $$;
 ROLLBACK;
 
--- Usage webhooks (0080), as the runtime login with no webhook row: a fixture member without the
+-- Usage webhooks (0082), as the runtime login with no webhook row: a fixture member without the
 -- inspect grant, in its own tenant and in another, cannot register one, and no runtime context
 -- deletes or re-attributes one. The checks against a registered row (hostile contexts, a ceiling
 -- without operator evidence, a registrar who lost the grant) are in tests/database/usage-webhooks.sql,
