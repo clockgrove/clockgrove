@@ -38,6 +38,7 @@ import {
   LiveChanges,
   spaceSummary,
   TextSceneEntities,
+  TextSceneSurfaces,
   useThrottled,
 } from "./text-scene.js";
 import { Timeline } from "./timeline.js";
@@ -625,6 +626,7 @@ export function WorldApp({
               select={select}
               focus={focus}
             />
+            <TextSceneSurfaces surfaces={state.projection?.surfaces} />
             {(state.projection?.privateCognition?.length ?? 0) > 0 && (
               <>
                 <h3>Private memories</h3>
@@ -656,7 +658,11 @@ export function WorldApp({
           </section>
         )}
         {scene && shown && (
-          <LiveChanges scene={scene} feed={typeof status === "object" ? status.feed : undefined} />
+          <LiveChanges
+            scene={scene}
+            feed={typeof status === "object" ? status.feed : undefined}
+            surfaces={state.projection?.surfaces}
+          />
         )}
         {scene && shown && <Timeline session={session} scene={scene} status={status} />}
         {scene && shown && signedIn && entry && (

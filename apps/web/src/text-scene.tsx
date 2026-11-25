@@ -3,11 +3,13 @@ import {
   type InteractionSummary,
   type LivingScene,
   type ObjectId,
+  type SceneSurfaces,
   type WorldFeedItem,
 } from "@clockgrove/contracts";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { weatherText } from "./hud.js";
 import { ACTION_LABELS } from "./interaction-card.js";
+import { surfaceSentences } from "./world-scene-adapter.js";
 
 /** Follows `value` at most once per interval: the first value at once, then only the latest. */
 export function useThrottled<T>(value: T, intervalMs: number): T {
@@ -120,9 +122,26 @@ export function spaceSummary(
   return `${world}, space ${space}, viewing ${viewing}. Weather: ${weatherText(scene)}. ${count} perceivable ${count === 1 ? "entity" : "entities"}.`;
 }
 
+/** The text path's surface sentences (issue 267), one per zone with a current band treatment. */
+export function TextSceneSurfaces({ surfaces }: { readonly surfaces: SceneSurfaces | undefined }) {
+  const sentences = surfaceSentences(surfaces);
+  if (sentences.length === 0) return null;
+  return (
+    <>
+      <h3>Surfaces</h3>
+      <ul aria-label="Surfaces">
+        {sentences.map((entry) => (
+          <li key={entry.zoneId}>{entry.sentence}</li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 interface Observed {
   readonly scene: LivingScene | undefined;
   readonly feed: readonly WorldFeedItem[] | undefined;
+  readonly surfaces?: SceneSurfaces | undefined;
 }
 
 /** What changed between two announced observations, as one sentence; empty when nothing did. */
@@ -144,6 +163,9 @@ function describeChanges(before: Observed, after: Observed): string {
     }
     for (const gone of earlier.values()) parts.push(`${gone.presentation.label} left the view`);
   }
+  const seen = new Map(surfaceSentences(before.surfaces).map((s) => [s.zoneId, s.sentence]));
+  for (const { zoneId, sentence } of surfaceSentences(after.surfaces))
+    if (seen.get(zoneId) !== sentence) parts.push(sentence.replace(/\.$/u, ""));
   if (before.feed && after.feed) {
     const known = new Set(before.feed.map((item) => item.id));
     for (const item of after.feed.filter((candidate) => !known.has(candidate.id)).reverse()) {
@@ -160,11 +182,13 @@ function describeChanges(before: Observed, after: Observed): string {
 export function LiveChanges({
   scene,
   feed,
+  surfaces,
 }: {
   readonly scene: LivingScene | undefined;
   readonly feed: readonly WorldFeedItem[] | undefined;
+  readonly surfaces?: SceneSurfaces | undefined;
 }) {
-  const latest = useMemo<Observed>(() => ({ scene, feed }), [scene, feed]);
+  const latest = useMemo<Observed>(() => ({ scene, feed, surfaces }), [scene, feed, surfaces]);
   const announced = useThrottled(latest, ANNOUNCE_INTERVAL_MS);
   const previous = useRef<Observed>(announced);
   const [log, setLog] = useState<readonly { readonly id: number; readonly text: string }[]>([]);

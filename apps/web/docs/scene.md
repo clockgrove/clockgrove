@@ -526,6 +526,29 @@ and not the cast. The contract is in
 A later part of #266 brings top-tier screen-space contact shadows, ambient occlusion and probe-lit
 indirect light (with #242's AO and probe pieces).
 
+### Surfaces (#267)
+
+The renderer draws the scene's projected `surfaces` as a derived look, never stored: `surfaceLook` in
+`apps/web/src/world-scene-adapter.ts` (the renderer-neutral bridge) computes it from the projection, the current quality tier and the seed
+`<worldId>/<timelineId>`, and the renderer rebuilds the meshes only when that look (or an object host's
+position) changes. A world without surfaces draws nothing.
+
+- **Level layers.** Each zone gets one floor-lying tint layer per current band treatment at the current
+  tier (tint, opacity). A region zone is a quad over its rectangle in the projected frame; an object
+  zone is an ellipse at the drawn object's foot, as wide as its contact shape. A zone whose host is not
+  drawn is skipped.
+- **Close-range decals.** Recent marks are thin strokes drawn only at camera zoom at or above
+  `CLOSE_RANGE_ZOOM` (1.5, a decision: between the default zoom 1 and the default maximum 2). A stroke is
+  4-12% of the zone's shorter side long, its opacity 0.35-1 by the mark's intensity, its angle from
+  FNV-1a of the seed, zone, mark time and point, and its colour the tint of the zone's last current
+  treatment that draws marks, so replay, catch-up and flashback frames draw the same picture.
+- **Budget.** The tier's decal budget bounds the strokes. Decals it withholds are counted in the scene
+  metrics (`surfaceDecalsWithheld`), which is zero for a conforming pack; `surfaceZones` counts the
+  zones drawn and `surfaceDecals` the strokes on screen: zero below `CLOSE_RANGE_ZOOM`, where the decal
+  group is hidden.
+- **Text path.** The text view lists each zone's sentence under "Surfaces" and announces a new or
+  changed sentence.
+
 ### Lamp shadows (#266)
 
 The key lamp is the brightest admitted content light (`lights`, the first on ties, intensity above
