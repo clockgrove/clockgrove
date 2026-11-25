@@ -120,3 +120,23 @@ export class TierGovernor {
     return next;
   }
 }
+
+/**
+ * Decision (issue 273): one journaled frame per the live scene's INTERPOLATION_MS, so a frame lasts
+ * as long as one committed move draws live; 17 frames play in under 7 s.
+ */
+export const FLASHBACK_FRAME_MS = 400;
+
+/**
+ * Decision (issue 273): the PiP's CSS size per live tier. Low has no PiP canvas (the tier a device
+ * or a struggling frame rate drops to, where a second renderer would cost the live view); the text
+ * summary is the floor. The sizes are a half and three-quarters of the renderer's 640 x 400 logical
+ * view, well inside each tier's texture ceiling.
+ */
+export const FLASHBACK_PIP_BUDGET: Readonly<
+  Record<QualityTier, { readonly width: number; readonly height: number } | null>
+> = {
+  low: null,
+  medium: { width: 320, height: 200 },
+  high: { width: 480, height: 300 },
+};

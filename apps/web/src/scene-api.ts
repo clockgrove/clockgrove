@@ -9,6 +9,7 @@ import {
   decodeConversationSession,
   decodeConversationTranscript,
   decodeEntitySelection,
+  decodeFlashback,
   decodeFollowDisposition,
   decodeInfluenceReceipt,
   decodeRecordedWhy,
@@ -23,6 +24,9 @@ import {
   type EntitySelection,
   type EntitySelectionRequest,
   type EventId,
+  type Flashback,
+  type FlashbackEntry,
+  type FlashbackRequest,
   type FollowDisposition,
   type InfluenceReceipt,
   type ObjectId,
@@ -57,6 +61,8 @@ import {
 import {
   type DirectoryQueryKey,
   type EntityQueryKey,
+  type FlashbackQueryKey,
+  flashbackProjection,
   sceneProjectionKey,
   selectionProjection,
   type ViewTraceQueryKey,
@@ -66,7 +72,12 @@ import {
 } from "./scene-queries.js";
 import { browserSceneSocket, type SceneSocketFactory } from "./socket.js";
 
-export type { SelectionProjection, ViewTraceProjection, WhyProjection } from "./scene-queries.js";
+export type {
+  FlashbackProjection,
+  SelectionProjection,
+  ViewTraceProjection,
+  WhyProjection,
+} from "./scene-queries.js";
 
 function answers(request: RecordedWhyRequest, value: RecordedWhy): boolean {
   const { entry } = value;
@@ -78,6 +89,13 @@ function answers(request: RecordedWhyRequest, value: RecordedWhy): boolean {
       entry.idempotencyKey === request.idempotencyKey
     );
   return entry.kind === "command" && value.commandId === request.commandId;
+}
+
+/** A flashback answers the entry it was asked for, never another. */
+function answersFlashback(request: FlashbackEntry, value: Flashback): boolean {
+  return "eventId" in request
+    ? "eventId" in value.entry && value.entry.eventId === request.eventId
+    : "commandId" in value.entry && value.entry.commandId === request.commandId;
 }
 
 /** A transport or server failure decided nothing; a refusal is the server's answer. */
@@ -308,6 +326,17 @@ export class SceneSession {
   });
   private selectionObserver: QueryObserver<EntitySelection> | undefined;
   private whyObserver: QueryObserver<RecordedWhy> | undefined;
+  private flashbackIntent = 0;
+  private flashbackEntry: FlashbackEntry | undefined;
+  private flashbackKey: FlashbackQueryKey = [
+    "living-scene",
+    "flashback",
+    0,
+    undefined,
+    0,
+    undefined,
+  ];
+  private flashbackObserver: QueryObserver<Flashback> | undefined;
   constructor(
     private readonly origin: string,
     private readonly resetView: () => void,
@@ -390,6 +419,7 @@ export class SceneSession {
   readonly getSelectionKey = (): EntityQueryKey => this.selectionKey;
   readonly getWhyKey = (): WhyQueryKey => this.whyKey;
   readonly getViewTraceKey = (): ViewTraceQueryKey => this.viewKey;
+  readonly getFlashbackKey = (): FlashbackQueryKey => this.flashbackKey;
   /** The observation intent fences world-status results: a replaced observation changes it. */
   readonly getIntent = (): number => this.intent;
   /**
@@ -467,6 +497,11 @@ export class SceneSession {
     );
   readonly getWhySnapshot = () =>
     whyProjection(this.entry, this.queries.getQueryState<RecordedWhy>(this.whyKey));
+  readonly getFlashbackSnapshot = () =>
+    flashbackProjection(
+      this.flashbackEntry,
+      this.queries.getQueryState<Flashback>(this.flashbackKey),
+    );
   readonly getViewTraceSnapshot = () =>
     viewTraceProjection(this.viewOpen, this.queries.getQueryState<ClientViewTrace>(this.viewKey));
   async inspectRecordedWhy(signal: AbortSignal): Promise<string> {
@@ -573,6 +608,68 @@ export class SceneSession {
     }
     this.notify();
   }
+  /**
+   * Issue 273: opens a flashback of one journaled event or command in the observed space, replacing
+   * any open one; no entry closes it. `objectId` follows an actor along "and before that…". The
+   * runtime authorizes the entry under the scene's own observe grant.
+   */
+  flashback(entry: FlashbackEntry | undefined, objectId?: ObjectId): void {
+    ++this.flashbackIntent;
+    this.flashbackObserver?.destroy();
+    this.flashbackObserver = undefined;
+    void this.queries.cancelQueries({ queryKey: this.flashbackKey, exact: true });
+    this.queries.removeQueries({ queryKey: this.flashbackKey, exact: true });
+    const scope = this.getSnapshot().scope;
+    const credential = this.credential;
+    this.flashbackEntry = entry && credential && scope ? entry : undefined;
+    this.flashbackKey = [
+      "living-scene",
+      "flashback",
+      this.intent,
+      scope,
+      this.flashbackIntent,
+      this.flashbackEntry,
+    ];
+    if (this.flashbackEntry && credential && scope) {
+      const { flashbackIntent, intent, flashbackKey } = this;
+      const request: FlashbackRequest =
+        "eventId" in this.flashbackEntry
+          ? { version: 1, ...scope, eventId: this.flashbackEntry.eventId }
+          : {
+              version: 1,
+              ...scope,
+              commandId: this.flashbackEntry.commandId,
+              ...(objectId === undefined ? {} : { objectId }),
+            };
+      const asked = this.flashbackEntry;
+      this.flashbackObserver = new QueryObserver<Flashback>(this.queries, {
+        queryKey: flashbackKey,
+        queryFn: skipToken,
+      });
+      this.flashbackObserver.subscribe(() => this.notify());
+      void this.queries
+        .fetchQuery({
+          queryKey: flashbackKey,
+          staleTime: 0,
+          queryFn: async ({ signal }) => {
+            const value = await this.readObservation(
+              "/v1/runtime/flashback",
+              credential,
+              request,
+              signal,
+              decodeFlashback,
+            );
+            if (!answersFlashback(asked, value)) throw new ApiRefusal(403);
+            return value;
+          },
+        })
+        .catch((error) => {
+          if (flashbackIntent === this.flashbackIntent && intent === this.intent)
+            this.refuseAuthorization(error);
+        });
+    }
+    this.notify();
+  }
   /** The viewer's own view traced: the web joins with no interest beyond the viewed space. */
   traceView(open: boolean): void {
     if (open) measure("inspector_traversal", "view");
@@ -627,6 +724,7 @@ export class SceneSession {
   private async readRuntime<T>(
     endpoint:
       | "/v1/runtime/entity"
+      | "/v1/runtime/flashback"
       | "/v1/runtime/view-trace"
       | "/v1/runtime/why"
       | "/v1/runtime/world-directory"
@@ -655,6 +753,7 @@ export class SceneSession {
   private async readObservation<T extends BrowserScope>(
     endpoint:
       | "/v1/runtime/entity"
+      | "/v1/runtime/flashback"
       | "/v1/runtime/view-trace"
       | "/v1/runtime/why"
       | "/v1/runtime/world-status",
@@ -1439,6 +1538,7 @@ export class SceneSession {
     this.following = undefined;
     this.credential = credential;
     this.traceView(false);
+    this.flashback(undefined);
     this.select(undefined);
     const observation = this.observation;
     this.observation = undefined;

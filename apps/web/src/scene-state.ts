@@ -6,6 +6,7 @@ import type {
   WorldBootState,
 } from "@clockgrove/contracts";
 import { create } from "zustand";
+import type { QualityTier } from "./quality-tier.js";
 import { reduceBoot, routeResolving, type WorldBootEvent } from "./world-boot.js";
 import type { SceneEmphasis, SceneOcclusionReveal } from "./world-scene-adapter.js";
 
@@ -45,6 +46,17 @@ interface WhyView {
 export const useWhyView = create<WhyView>((set) => ({
   commandId: undefined,
   explain: (commandId) => set({ commandId }),
+}));
+
+interface LiveTier {
+  /** The live canvas renderer's quality tier; undefined while no live canvas draws. */
+  readonly tier: QualityTier | undefined;
+  readonly report: (tier: QualityTier | undefined) => void;
+}
+// Issue 273: the flashback's picture-in-picture budget follows the live renderer's tier.
+export const useLiveTier = create<LiveTier>((set) => ({
+  tier: undefined,
+  report: (tier) => set({ tier }),
 }));
 
 interface WorldChoice {

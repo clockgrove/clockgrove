@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { flashbackOpener } from "./flashback.js";
 import type { SceneSession } from "./scene-api.js";
 import { useWhyQuery } from "./scene-queries.js";
 
@@ -55,6 +56,20 @@ export function RecordedWhyPanel({ session }: { readonly session: SceneSession }
       </button>
       {value && (
         <>
+          <button
+            type="button"
+            data-flashback-opener={`why:${value.commandId}`}
+            onClick={(event) => {
+              flashbackOpener.current = event.currentTarget;
+              session.flashback(
+                value.entry.kind === "event"
+                  ? { eventId: value.entry.eventId }
+                  : { commandId: value.commandId },
+              );
+            }}
+          >
+            Flashback to this moment
+          </button>
           <InspectionAccess key={`${session.getIntent()}:${why.commandId}`} session={session} />
           <p>
             Started from{" "}
@@ -194,6 +209,24 @@ export function RecordedWhyPanel({ session }: { readonly session: SceneSession }
           )}
           <h4>Authorized causal links</h4>
           <p>Parent commands: {value.links.parents.join(", ") || "None"}</p>
+          {value.links.parents.length > 0 && (
+            <ul aria-label="Flashbacks to parent commands">
+              {value.links.parents.map((parent) => (
+                <li key={parent}>
+                  <button
+                    type="button"
+                    data-flashback-opener={`why-parent:${parent}`}
+                    onClick={(event) => {
+                      flashbackOpener.current = event.currentTarget;
+                      session.flashback({ commandId: parent });
+                    }}
+                  >
+                    {`Flashback to parent command ${parent}`}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <p>Child commands: {value.links.children.join(", ") || "None"}</p>
         </>
       )}

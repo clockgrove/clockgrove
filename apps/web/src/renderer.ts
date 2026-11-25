@@ -508,6 +508,8 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   private previousTime: number | undefined;
   private framesSinceReport = 0;
   private tier: QualityTier = "low";
+  private tierKnown = false;
+  private readonly tierHandlers = new Set<(tier: QualityTier) => void>();
   /** #356: the device's reported capabilities and the frame-time judge built from them. */
   private device: DeviceProfile | undefined;
   private governor: TierGovernor | undefined;
@@ -1397,6 +1399,13 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
     this.rebuildReflections();
     this.updateTextureBytes();
     this.dirty = true;
+    this.tierKnown = true;
+    for (const handler of [...this.tierHandlers]) handler(tier);
+  }
+  onQualityTier(handler: (tier: QualityTier) => void): () => void {
+    this.tierHandlers.add(handler);
+    if (this.tierKnown) handler(this.tier);
+    return () => this.tierHandlers.delete(handler);
   }
   private applyMaterialTier(contentOnly = false): void {
     const contentMeshes = new Set<THREE.Object3D>();
@@ -2746,6 +2755,7 @@ export class ThreeWorldSceneAdapter implements WorldSceneAdapter {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.tierHandlers.clear();
     this.resizeObserver?.disconnect();
     this.restoreContentErrors?.();
     this.restoreContentErrors = undefined;

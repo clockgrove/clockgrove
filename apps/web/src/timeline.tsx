@@ -1,5 +1,6 @@
 import type { LivingScene, WorldStatus } from "@clockgrove/contracts";
 import { useState } from "react";
+import { flashbackOpener } from "./flashback.js";
 import { focusWhenPresent } from "./focus.js";
 import { CATEGORY_LABELS, eventTime } from "./hud.js";
 import type { SceneSession } from "./scene-api.js";
@@ -116,6 +117,18 @@ export function Timeline({
               }}
             >
               {`Why event ${eventId}`}
+            </button>
+          )}
+          {eventId !== undefined && (
+            <button
+              type="button"
+              data-flashback-opener={`timeline:${eventId}`}
+              onClick={(event) => {
+                flashbackOpener.current = event.currentTarget;
+                session.flashback({ eventId });
+              }}
+            >
+              {`Flashback event ${eventId}`}
             </button>
           )}
         </>

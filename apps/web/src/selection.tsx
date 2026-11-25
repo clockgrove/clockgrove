@@ -1,4 +1,5 @@
 import type { ObjectId, SelectionDerived, SelectionValues } from "@clockgrove/contracts";
+import { flashbackOpener } from "./flashback.js";
 import { InteractionCard } from "./interaction-card.js";
 import type { SceneSession } from "./scene-api.js";
 import {
@@ -192,6 +193,16 @@ function EntitySelectionPanel({
                     }}
                   >
                     Why action {action.actionId}
+                  </button>{" "}
+                  <button
+                    type="button"
+                    data-flashback-opener={`history:${action.eventId}`}
+                    onClick={(event) => {
+                      flashbackOpener.current = event.currentTarget;
+                      session.flashback({ eventId: action.eventId });
+                    }}
+                  >
+                    Flashback action {action.actionId}
                   </button>
                 </li>
               ))}

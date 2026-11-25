@@ -2,6 +2,7 @@ import type { ClientViewTrace, LivingScene, SceneProjection, SpaceId } from "@cl
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserAuthenticationPort } from "./api.js";
 import { OperatorEffects } from "./conversations/operator-effects.js";
+import { FlashbackPanel } from "./flashback.js";
 import { useFocusRecovery } from "./focus.js";
 import { MaterialFeed, WorldClockHud } from "./hud.js";
 import { McpCapabilities } from "./mcp-capabilities.js";
@@ -23,6 +24,7 @@ import {
   useEntityFocus,
   useEntityRail,
   useOcclusionView,
+  useLiveTier,
   useSceneView,
   useViewedSpace,
   useWorldBoot,
@@ -116,6 +118,7 @@ function SceneCanvas({
     const motion = globalThis.matchMedia?.(REDUCED_MOTION);
     const release = () => {
       for (const stop of stops.splice(0)) stop();
+      useLiveTier.getState().report(undefined);
       created?.destroy();
       created = undefined;
       adapter.current = undefined;
@@ -157,6 +160,8 @@ function SceneCanvas({
         // #266: the renderer reports the selected character's reveal; the text path names it.
         if (renderer.onOcclusion)
           stops.push(renderer.onOcclusion((reveal) => useOcclusionView.getState().show(reveal)));
+        const tier = renderer.onQualityTier?.((next) => useLiveTier.getState().report(next));
+        if (tier) stops.push(tier);
         // Selection and keyboard focus reach the renderer only through its adapter.
         stops.push(
           followEmphasis(({ selected, focused }) => {
@@ -654,6 +659,13 @@ export function WorldApp({
         )}
         {scene && shown && <Timeline session={session} scene={scene} status={status} />}
         {scene && shown && <RecordedWhyPanel session={session} />}
+        {scene && shown && (
+          <FlashbackPanel
+            session={session}
+            dayLengthMs={dayLengthMs}
+            {...(content && { content })}
+          />
+        )}
         {scene && shown && viewTrace.status !== "none" && (
           <ClientViewTracePanel trace={viewTrace} received={state.projection?.audienceHash} />
         )}
