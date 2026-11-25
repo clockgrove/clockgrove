@@ -71,14 +71,17 @@ describe("native physical-owner runtime metrics (Wave 3 §20)", () => {
         // alarm whose one-command batch hands the rest to catch-up. Its first step is held settled.
         await new AutonomousScenarioDriver(owner, "frequent-alarms", Promise.resolve()).start();
         await owner.request("/catch-up/configure", { scope: owner.scope, fault: "hold-result" });
-        await configureAutonomousOwner(owner, 1_001_100_000n, 1, true, true);
+        // `commandLimit` 1 bounds each batch and step to one command. The 250 ms start budget is off:
+        // a step's clock starts before its mailbox wait, so on a loaded runner a step could spend
+        // the budget waiting and be held having started no command (#459).
+        await configureAutonomousOwner(owner, 1_001_100_000n, 1, true, true, false);
         await waitForOwnerSql(
           owner.sql,
           "SELECT count(*) FROM clockgrove.partition_states WHERE catch_up_run_id IS NOT NULL",
           "1",
           1000,
         );
-        await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true);
+        await configureAutonomousOwner(owner, 1_001_100_000n, 1, false, true, false);
         await expect
           .poll(
             async () => (await owner.request("/catch-up/status", { scope: owner.scope })).body,
