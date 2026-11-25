@@ -52,6 +52,7 @@ import {
   pendingPortalSteps,
   planSurfaceCrossing,
   planSurfaceInteraction,
+  planSurfaceNotices,
   planSurfaceRainSettlement,
   planSurfaceRepair,
   planSurfaceTraffic,
@@ -1194,6 +1195,14 @@ function runWorld(
   }
   function withTraffic(event: WorldEvent): WorldEvent {
     if (event.type !== "movement.region-entered" || policy.surfaces === undefined) return event;
+    const notices = planSurfaceNotices(
+      policy.surfaces,
+      current(),
+      event.payload.objectId,
+      event.payload.regionId,
+      event.simulationTime,
+      policy.environment,
+    );
     const surfaces = planSurfaceTraffic(
       policy.surfaces,
       current(),
@@ -1202,7 +1211,15 @@ function runWorld(
       event.simulationTime,
       policy.environment,
     );
-    return surfaces.length === 0 ? event : { ...event, payload: { ...event.payload, surfaces } };
+    if (surfaces.length === 0 && notices.length === 0) return event;
+    return {
+      ...event,
+      payload: {
+        ...event.payload,
+        ...(surfaces.length === 0 ? {} : { surfaces }),
+        ...(notices.length === 0 ? {} : { notices }),
+      },
+    };
   }
   function emit(planned: WorldEvent, reconcileShelter = true): void {
     const event = withTraffic(planned);
@@ -5048,7 +5065,8 @@ function surfaceJournalDisagreement(
       ((event.type === "movement.region-entered" ||
         event.type === "weather.changed" ||
         event.type === "weather.transitioned") &&
-        event.payload.surfaces !== undefined),
+        (event.payload.surfaces !== undefined ||
+          (event.type === "movement.region-entered" && event.payload.notices !== undefined))),
   );
   if (surfaces === undefined) return first < 0 ? undefined : `events[${first}]`;
   let state = initial;
@@ -5137,9 +5155,19 @@ function surfaceJournalDisagreement(
           event.simulationTime,
           activePolicy?.environment,
         );
+        const notices = planSurfaceNotices(
+          surfaces,
+          state,
+          event.payload.objectId,
+          event.payload.regionId,
+          event.simulationTime,
+          activePolicy?.environment,
+        );
         if (
           canonicalSerialize(planned.length === 0 ? null : planned) !==
-          canonicalSerialize(event.payload.surfaces ?? null)
+            canonicalSerialize(event.payload.surfaces ?? null) ||
+          canonicalSerialize(notices.length === 0 ? null : notices) !==
+            canonicalSerialize(event.payload.notices ?? null)
         )
           return `events[${index}]`;
       } else if (event.type === "surface.band-crossed") {

@@ -174,8 +174,9 @@ function run(
   world: EnvironmentWorld,
   type: "surface.interact" | "surface.repair",
   payload: object,
+  actor?: string,
 ) {
-  const result = executeWorldKernel(command(world, type, payload), { mode: "test" });
+  const result = executeWorldKernel(command(world, type, payload, actor), { mode: "test" });
   if (!result.ok) throw new Error(`${result.error.path} ${result.error.check}`);
   return {
     world: { ...world, state: result.result.state, schedules: result.result.schedules },
@@ -757,4 +758,86 @@ it("drains what a dying actor carries in the same instant, right after its death
     expect(chained.calls.length).toBeGreaterThan(1);
     expect(canonicalSerialize(chained.world.state)).toBe(canonicalSerialize(run.world.state));
   }
+});
+
+it("notices another actor's scratch on a post by sight on walking in, only while it is worn and only if it can see", async () => {
+  const archetypeId = (await surfaceWorld()).state.entities.find(
+    (e) => e.objectId === "subject",
+  )!.archetypeId;
+  const wear = surfaces.channels[0]!;
+  const policy = (modalities: readonly ("sight" | "smell")[], senses = ["sight" as const]) => ({
+    ...surfaces,
+    channels: [
+      { ...wear, bands: wear.bands.map((b) => (b.name === "scuffed" ? { ...b, senses } : b)) },
+      surfaces.channels[1]!,
+    ],
+    zones: [
+      {
+        id: "gatepost",
+        host: host("gate-object"),
+        markCapacity: 2,
+        channels: [{ channel: "wear", initial: 0 }],
+      },
+    ],
+    senses: [{ archetypeId, modalities }],
+  });
+  const walkIn = async (modalities: readonly ("sight" | "smell")[], waitMs = 0n) => {
+    const gate = {
+      objectId: "gate-object",
+      pose: { frameId: "zone-ground", frameVersion: 1, coordinates: [7000n, 0n] },
+    };
+    const porch = {
+      regionId: "porch",
+      version: 1,
+      frameId: "zone-ground",
+      frameVersion: 1,
+      shape: { kind: "rectangle", min: [6000n, -1000n], max: [8000n, 1000n] },
+    };
+    const scratched = run(
+      await surfaceWorld(policy(modalities) as SurfacePolicy, {
+        hosts: [gate, { objectId: "visitor" }],
+        regions: [porch],
+      }),
+      "surface.interact",
+      interact("gatepost", "scratch", "visitor"),
+      "visitor",
+    );
+    const waited = runChain(scratched.world, "wait", scratched.world.state.simulationTime + waitMs);
+    const pose = waited.world.state.entities.find((e) => e.objectId === "subject")!.pose;
+    const destination = { kind: "pose", pose: { ...pose, coordinates: [9000n, 0n] } };
+    const started = applyCommand(
+      waited.world,
+      movementInput(
+        advanceInput(waited.world, "walk", waited.world.state.simulationTime),
+        "movement.start",
+        { schemaVersion: 1, objectId: "subject", destination, unitsPerSecond: 1000n },
+        "walk",
+      ) as never,
+    );
+    const walked = runChain(started.world, "arrive", started.world.state.simulationTime + 20_000n);
+    const events = [...started.events, ...walked.events];
+    expect(events.reduce(reduceWorldEvent, waited.world.state).surfaces).toEqual(
+      walked.world.state.surfaces,
+    );
+    return events.flatMap((e) => (e.type === "movement.region-entered" ? [e.payload] : []));
+  };
+  const seen = await walkIn(["sight"]);
+  expect(seen).toHaveLength(1);
+  expect(seen[0]!.notices).toEqual([
+    {
+      zoneId: "gatepost",
+      signals: [{ channel: "wear", band: "scuffed", modality: "sight" }],
+      mark: {
+        actorId: "visitor",
+        interactionId: "scratch",
+        at: 0n,
+        intensity: 10000,
+        point: { u: 5, v: 7 },
+      },
+    },
+  ]);
+  expect(await walkIn(["smell"])).toEqual([
+    expect.not.objectContaining({ notices: expect.anything() }),
+  ]);
+  expect((await walkIn(["sight"], 21n * HOUR)).map((p) => "notices" in p)).toEqual([false]);
 });

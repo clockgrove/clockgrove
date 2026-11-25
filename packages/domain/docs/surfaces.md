@@ -166,6 +166,29 @@ field, present only when non-empty: wear costs no event of its own, never one pe
 entry event without the field encodes as before. `reduceWorldEvent` applies them after the
 movement reducer through `reduceSurfaceTraffic`.
 
+## Senses and notices
+
+A band may declare `senses`, one or two unique modalities (`sight`, `smell`) to which it is a
+standing signal while the channel's value is in it. The policy may declare `senses`, up to 64
+entries `{archetypeId, modalities}` with unique archetype ids, matched exactly against an entity's
+`archetypeId`. Both are optional; without them nothing is perceivable and every encoding is as
+before.
+
+`planSurfaceNotices(policy, state, observerId, regionId, at, environment?)` returns what an observer
+entering `regionId` perceives, as `SurfaceNotice` entries `{zoneId, signals, mark}`. It returns none
+when the policy has no `senses`, the world has no surface state, the observer is not an entity or
+its archetype has no entry. A zone is a candidate when it is hosted by `regionId`, or by an active
+object other than the observer whose pose lies inside that region. For each candidate zone, in
+declaration order, each channel is settled at `at` (under the rain the world holds), and each band
+containing the value that declares `senses` gives one signal `{channel, band, modality}`, with the
+first of the band's modalities the observer has. A zone with at least one signal is a notice, whose
+`mark` is the last mark of its ring or `null`.
+
+Notices ride on the existing `movement.region-entered` event as its optional `notices` field,
+present only when non-empty and computed from the state before the entry's traffic applies. There is
+no new event and no state: the reducer ignores the field, a notice costs nothing as time passes, and
+an entry event without the field encodes as before.
+
 ## Events and reducers
 
 | Event (version 1) | Payload |

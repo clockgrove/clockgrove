@@ -21,6 +21,7 @@ import {
   type SurfaceChannel,
   type SurfaceEffect,
   type SurfaceMark,
+  type SurfaceModality,
   type SurfacePolicy,
   type SurfaceState,
   type SurfaceZone,
@@ -694,6 +695,7 @@ function surfacePolicy(input: unknown, path: string): SurfacePolicy {
     input,
     ["schemaVersion", "budgets", "channels", "zones", "interactions"],
     path,
+    ["senses"],
   );
   version(raw, path);
   const budgets = object(raw.budgets, ["zones", "marksPerZone"], `${path}.budgets`);
@@ -716,11 +718,14 @@ function surfacePolicy(input: unknown, path: string): SurfacePolicy {
         max: integer(channel.max, `${at}.max`),
         carried: channel.carried,
         bands: list(channel.bands, `${at}.bands`, (band, bandAt) => {
-          const raw = object(band, ["name", "min", "max"], bandAt);
+          const raw = object(band, ["name", "min", "max"], bandAt, ["senses"]);
           return {
             name: text(raw.name, `${bandAt}.name`),
             min: integer(raw.min, `${bandAt}.min`),
             max: integer(raw.max, `${bandAt}.max`),
+            ...(raw.senses === undefined
+              ? {}
+              : { senses: list(raw.senses, `${bandAt}.senses`, text) as SurfaceModality[] }),
           };
         }),
         recovery:
@@ -782,6 +787,17 @@ function surfacePolicy(input: unknown, path: string): SurfacePolicy {
         }),
       };
     }),
+    ...(raw.senses === undefined
+      ? {}
+      : {
+          senses: list(raw.senses, `${path}.senses`, (value, at) => {
+            const entry = object(value, ["archetypeId", "modalities"], at);
+            return {
+              archetypeId: text(entry.archetypeId, `${at}.archetypeId`),
+              modalities: list(entry.modalities, `${at}.modalities`, text) as SurfaceModality[],
+            };
+          }),
+        }),
   };
   validateSurfacePolicy(policy);
   return policy;

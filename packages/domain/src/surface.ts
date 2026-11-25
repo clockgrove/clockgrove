@@ -5,10 +5,13 @@ import { type EnvironmentPolicy, EnvironmentValidationError } from "./environmen
 import { regionContains } from "./spatial/region.js";
 import type { WorldBehaviorPolicy, WorldState } from "./world.js";
 
+export type SurfaceModality = "sight" | "smell";
 export interface SurfaceBand {
   readonly name: string;
   readonly min: number;
   readonly max: number;
+  /** The modalities to which this band is a standing signal. */
+  readonly senses?: readonly SurfaceModality[];
 }
 export type SurfaceRecovery =
   | { readonly driver: "none" }
@@ -58,6 +61,11 @@ export interface SurfacePolicy {
   readonly channels: readonly SurfaceChannel[];
   readonly zones: readonly SurfaceZone[];
   readonly interactions: readonly SurfaceInteraction[];
+  /** What each archetype can perceive, matched exactly against the entity's `archetypeId`. */
+  readonly senses?: readonly {
+    readonly archetypeId: string;
+    readonly modalities: readonly SurfaceModality[];
+  }[];
 }
 export interface SurfaceChannelState {
   readonly channel: string;
@@ -168,12 +176,28 @@ function bad(path: string, message = "invalid surface declaration"): never {
 function overBudget(path: string): never {
   throw new EnvironmentValidationError(path, BUDGET_MESSAGE, BUDGET_CHECK);
 }
-function record(value: unknown, keys: readonly string[], path: string): Record<string, unknown> {
+function record(
+  value: unknown,
+  keys: readonly string[],
+  path: string,
+  optional: readonly string[] = [],
+): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) bad(path);
   const raw = value as Record<string, unknown>;
-  if (Object.keys(raw).length !== keys.length || keys.some((key) => !Object.hasOwn(raw, key)))
+  const present = Object.keys(raw);
+  if (
+    keys.some((key) => !Object.hasOwn(raw, key)) ||
+    present.some((key) => !keys.includes(key) && !optional.includes(key))
+  )
     bad(path);
   return raw;
+}
+function modalities(value: unknown, path: string): void {
+  const seen = new Set<unknown>();
+  array(value, 1, 2, path).forEach((modality, k) => {
+    if ((modality !== "sight" && modality !== "smell") || seen.has(modality)) bad(`${path}[${k}]`);
+    seen.add(modality);
+  });
 }
 function name(value: unknown, path: string): string {
   if (
@@ -208,6 +232,7 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
     value,
     ["schemaVersion", "budgets", "channels", "zones", "interactions"],
     root,
+    ["senses"],
   );
   if (raw.schemaVersion !== 1) bad(`${root}.schemaVersion`);
   const budgets = record(raw.budgets, ["zones", "marksPerZone"], `${root}.budgets`);
@@ -229,7 +254,8 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
     const names = new Set<string>();
     array(entry.bands, 1, MAX_SURFACE_BANDS, `${path}.bands`).forEach((band, k) => {
       const bandPath = `${path}.bands[${k}]`;
-      const b = record(band, ["name", "min", "max"], bandPath);
+      const b = record(band, ["name", "min", "max"], bandPath, ["senses"]);
+      if (Object.hasOwn(b, "senses")) modalities(b.senses, `${bandPath}.senses`);
       const bandName = name(b.name, `${bandPath}.name`);
       if (names.has(bandName)) bad(`${bandPath}.name`);
       names.add(bandName);
@@ -271,10 +297,8 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
   const traffic: { path: string; zone: Record<string, unknown> }[] = [];
   zones.forEach((candidate, i) => {
     const path = `${root}.zones[${i}]`;
-    const withTraffic =
-      candidate !== null && typeof candidate === "object" && Object.hasOwn(candidate, "traffic");
-    const keys = ["id", "host", "channels", "markCapacity"];
-    const entry = record(candidate, withTraffic ? [...keys, "traffic"] : keys, path);
+    const entry = record(candidate, ["id", "host", "channels", "markCapacity"], path, ["traffic"]);
+    const withTraffic = Object.hasOwn(entry, "traffic");
     const id = name(entry.id, `${path}.id`);
     if (zoneIds.has(id)) bad(`${path}.id`);
     zoneIds.add(id);
@@ -332,6 +356,17 @@ export function validateSurfacePolicy(value: unknown): asserts value is SurfaceP
       });
     },
   );
+  if (Object.hasOwn(raw, "senses")) {
+    const archetypes = new Set<string>();
+    array(raw.senses, 0, 64, `${root}.senses`).forEach((candidate, i) => {
+      const path = `${root}.senses[${i}]`;
+      const entry = record(candidate, ["archetypeId", "modalities"], path);
+      const archetypeId = name(entry.archetypeId, `${path}.archetypeId`);
+      if (archetypes.has(archetypeId)) bad(`${path}.archetypeId`);
+      archetypes.add(archetypeId);
+      modalities(entry.modalities, `${path}.modalities`);
+    });
+  }
   for (const { path, zone } of traffic) {
     const used = effectChannels.get(zone.traffic as string);
     const host = zone.host as { kind: string };
@@ -906,6 +941,70 @@ export function reduceSurfaceTraffic(
       }),
     };
   return current.surfaces!;
+}
+
+export interface SurfaceSignal {
+  readonly channel: string;
+  readonly band: string;
+  readonly modality: SurfaceModality;
+}
+export interface SurfaceNotice {
+  readonly zoneId: string;
+  readonly signals: readonly SurfaceSignal[];
+  readonly mark: SurfaceMark | null;
+}
+
+/** The standing signals the observer perceives from the zones in `regionId` or hosted by objects inside it. */
+export function planSurfaceNotices(
+  policy: SurfacePolicy,
+  state: WorldState,
+  observerId: ObjectId,
+  regionId: string,
+  at: SimTimeMs,
+  environment?: EnvironmentPolicy,
+): readonly SurfaceNotice[] {
+  const surfaces = state.surfaces;
+  const observer = state.entities.find((entity) => entity.objectId === observerId);
+  const senses = policy.senses?.find((entry) => entry.archetypeId === observer?.archetypeId);
+  if (surfaces === undefined || observer === undefined || senses === undefined) return [];
+  const region = state.spatialRegions?.find((candidate) => candidate.regionId === regionId);
+  const hold = surfaceRainHold(state, environment);
+  const notices: SurfaceNotice[] = [];
+  for (const [index, zone] of policy.zones.entries()) {
+    if (zone.host.kind === "region") {
+      if (zone.host.regionId !== regionId) continue;
+    } else {
+      const hostId = zone.host.objectId;
+      const host = state.entities.find((entity) => entity.objectId === hostId);
+      if (
+        host === undefined ||
+        host === observer ||
+        (host.lifecycle !== undefined && host.lifecycle.status !== "active") ||
+        region === undefined ||
+        region.frameId !== host.pose.frameId ||
+        region.frameVersion !== host.pose.frameVersion ||
+        !regionContains(region, host.pose.coordinates)
+      )
+        continue;
+    }
+    const zoneState = surfaces.zones[index]!;
+    const signals: SurfaceSignal[] = [];
+    for (const entry of zoneState.channels) {
+      const channel = declared(policy, entry.channel);
+      const { value } = surfaceValueAt(channel, entry, at, environment, hold);
+      const names = surfaceBands(channel, value);
+      for (const band of channel.bands) {
+        const modality = names.includes(band.name)
+          ? band.senses?.find((candidate) => senses.modalities.includes(candidate))
+          : undefined;
+        if (modality !== undefined)
+          signals.push({ channel: channel.id, band: band.name, modality });
+      }
+    }
+    if (signals.length > 0)
+      notices.push({ zoneId: zone.id, signals, mark: zoneState.marks.at(-1) ?? null });
+  }
+  return notices;
 }
 
 export function planSurfaceRepair(
