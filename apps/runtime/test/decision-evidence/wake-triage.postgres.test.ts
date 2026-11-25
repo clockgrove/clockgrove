@@ -44,25 +44,18 @@ const script = [
     costUsd: 0.0001,
   },
   { kind: "http", status: 503 },
-  ...[
-    "suppress",
-    "compiled_routine",
-    "full_turn",
-    "suppress",
-    "suppress",
-    "cant_tell",
-  ].map((label) => ({
-    kind: "answer",
-    answer: { type: "choice", label, confidence: 0.9 },
-    costUsd: 0.0001,
-  })),
+  ...["suppress", "compiled_routine", "full_turn", "suppress", "suppress", "cant_tell"].map(
+    (label) => ({
+      kind: "answer",
+      answer: { type: "choice", label, confidence: 0.9 },
+      costUsd: 0.0001,
+    }),
+  ),
 ];
 it.skipIf(isNativeWorldOwnerChild())(
   "owns shadow triage PostgreSQL and native actor runtime",
   async () => {
-    process.env.WAKE_TRIAGE_CONFIG = JSON.stringify({
-      dailyBudgetMicrousd: 6000,
-    });
+    process.env.WAKE_TRIAGE_CONFIG = JSON.stringify({ dailyBudgetMicrousd: 6000 });
     process.env.NATIVE_WAKE_TRIAGE_SCRIPT = JSON.stringify(script);
     process.env.NATIVE_WAKE_TRIAGE_FULL_TURN_COST_MICROUSD = "80000";
     try {
@@ -71,26 +64,14 @@ it.skipIf(isNativeWorldOwnerChild())(
           `UPDATE clockgrove.world_memberships SET grants=array_append(grants,'runtime:world-observe'), privacy_ceiling='{"version":1,"allowedCategories":["public_scene","conversation","operator_evidence"]}'`,
         );
       };
-      await runNativeWorldOwnerProcess(FILE, "fixture/reference", {
-        timeoutMs: 180000,
-        prepare,
-      });
-      const checkout = await mkdtemp(
-        path.join(tmpdir(), "wake-triage-checkout-"),
-      );
+      await runNativeWorldOwnerProcess(FILE, "fixture/reference", { timeoutMs: 180000, prepare });
+      const checkout = await mkdtemp(path.join(tmpdir(), "wake-triage-checkout-"));
       try {
-        await cp(
-          path.resolve("worlds/fixture/reference"),
-          path.join(checkout, "pack"),
-          {
-            recursive: true,
-          },
-        );
+        await cp(path.resolve("worlds/fixture/reference"), path.join(checkout, "pack"), {
+          recursive: true,
+        });
         const git = (...args: string[]) =>
-          execFileSync("git", ["-C", checkout, ...args], {
-            encoding: "utf8",
-            timeout: 30000,
-          });
+          execFileSync("git", ["-C", checkout, ...args], { encoding: "utf8", timeout: 30000 });
         git("init", "--quiet");
         git("add", "pack");
         git(
@@ -143,8 +124,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
             ...owner.scope,
             sessionId,
             messageId: `triage-${index}`,
-            text:
-              index === 0 ? "fixture:call mcp.fetch resource.offer" : "Hello",
+            text: index === 0 ? "fixture:call mcp.fetch resource.offer" : "Hello",
           },
           MEMBER,
         );
@@ -157,9 +137,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
       );
       expect(report.status).toBe(200);
       expect(
-        await owner.sql(
-          "SELECT state_hash FROM clockgrove.partition_states ORDER BY partition_id",
-        ),
+        await owner.sql("SELECT state_hash FROM clockgrove.partition_states ORDER BY partition_id"),
       ).toBe(physicalBefore);
       expect(report.body).toMatchObject({
         wakes: 7,
@@ -195,11 +173,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
           "SELECT count(*) FROM clockgrove.events WHERE event_type='WakeTriageRecorded'",
         ),
       ).toBe("7");
-      expect(
-        await owner.sql(
-          "SELECT sum(reserved_microusd) FROM clockgrove.wake_triage",
-        ),
-      ).toBe("6000");
+      expect(await owner.sql("SELECT sum(reserved_microusd) FROM clockgrove.wake_triage")).toBe(
+        "6000",
+      );
       await owner.replace(false);
       const again = await owner.request(
         "/v1/runtime/activations/triage-report",
@@ -280,10 +256,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
               clockgrove.shadow_usage_quantities('{"usage":{"calls":0,"inputTokens":0,"outputTokens":0}}'))::text`,
           ),
         ),
-      ).toEqual([
-        ...Array.from({ length: 3 }, () => ({ ...quantities(), calls: null })),
-        noCall,
-      ]);
+      ).toEqual([...Array.from({ length: 3 }, () => ({ ...quantities(), calls: null })), noCall]);
       const companion = await owner.request(
         "/v1/runtime/conversations/create",
         { version: 1, ...owner.scope, actorId: "fixture.companion" },
@@ -349,32 +322,15 @@ it.skipIf(!isNativeWorldOwnerChild())(
       ];
       // Issue 259: two compiled routines; only the one matching the woken kind is shown to triage.
       for (const [id, kind, input, condition] of [
-        [
-          "routine-water",
-          "heartbeat",
-          "Drink from the water store",
-          "The water store holds water",
-        ],
+        ["routine-water", "heartbeat", "Drink from the water store", "The water store holds water"],
         ["routine-feed", "threshold", "", "The food store holds food"],
       ] as const)
         expect(
           (
             await post("configure", {
               configuration: {
-                ...{
-                  id,
-                  sessionId,
-                  kind,
-                  nextWakeAt: null,
-                  intervalMs: null,
-                  input,
-                },
-                ...{
-                  priority: 1,
-                  enabled: true,
-                  compiledRoutine: "noop",
-                  condition,
-                },
+                ...{ id, sessionId, kind, nextWakeAt: null, intervalMs: null, input },
+                ...{ priority: 1, enabled: true, compiledRoutine: "noop", condition },
               },
               policy: { allowModel: true, modelBudget: 10 },
             })
@@ -430,9 +386,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ).body as { state: string; instructions: string }[]
       ).map((request) => request.state);
       const stateOf = (kind: string) =>
-        states.find((state) =>
-          state.startsWith(`Actor ${ACTOR}; activation ${kind}.`),
-        ) ?? "";
+        states.find((state) => state.startsWith(`Actor ${ACTOR}; activation ${kind}.`)) ?? "";
       expect(stateOf("heartbeat")).toContain(
         '(untrusted data, JSON):\n[{"reason":{"kind":"heartbeat","heartbeatId":"heartbeat"},"evidence":"thirst 7200/10000; water store: 0 portions"}]\n',
       );
@@ -442,15 +396,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(stateOf("threshold")).toContain(
         'exists):\n[{"id":"routine-feed","trigger":"threshold","condition":"The food store holds food"}]\n',
       );
-      expect(stateOf("direct_message")).toContain(
-        "(untrusted data, JSON):\n[]\n",
-      );
+      expect(stateOf("direct_message")).toContain("(untrusted data, JSON):\n[]\n");
       expect(stateOf("direct_message")).toContain("exists):\n[]\n");
-      const skipped = async (
-        id: string,
-        compiledRoutine: string,
-        allowModel: boolean,
-      ) => {
+      const skipped = async (id: string, compiledRoutine: string, allowModel: boolean) => {
         expect(
           (
             await post("configure", {
@@ -478,17 +426,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
           },
         });
       };
-      expect((await skipped("noop-proof", "noop", true)).body).toMatchObject({
-        status: "noop",
-      });
-      expect(
-        (await skipped("deferred-proof", "escalate", false)).body,
-      ).toMatchObject({
+      expect((await skipped("noop-proof", "noop", true)).body).toMatchObject({ status: "noop" });
+      expect((await skipped("deferred-proof", "escalate", false)).body).toMatchObject({
         status: "deferred",
       });
-      expect(
-        await owner.sql("SELECT count(*) FROM clockgrove.wake_triage"),
-      ).toBe("14");
+      expect(await owner.sql("SELECT count(*) FROM clockgrove.wake_triage")).toBe("14");
       const proactive = await post("triage-report", {});
       expect(proactive.status).toBe(200);
       expect(proactive.body).toMatchObject({
@@ -500,11 +442,9 @@ it.skipIf(!isNativeWorldOwnerChild())(
         grossSavedMicrousd: 320000,
         netSavedMicrousd: 318900,
       });
-      expect(
-        await owner.sql(
-          "SELECT count(DISTINCT wall_day) FROM clockgrove.wake_triage",
-        ),
-      ).toBe("2");
+      expect(await owner.sql("SELECT count(DISTINCT wall_day) FROM clockgrove.wake_triage")).toBe(
+        "2",
+      );
       const rows = (
         proactive.body as {
           observations: {
@@ -519,9 +459,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           .map((row) => row.decision.reason)
           .sort(),
       ).toEqual([...reasons].sort());
-      expect(
-        rows.find((row) => row.decision.reason === "heartbeat")?.truth,
-      ).toMatchObject({
+      expect(rows.find((row) => row.decision.reason === "heartbeat")?.truth).toMatchObject({
         proposedCommand: false,
         replyToPerson: false,
       });
@@ -547,13 +485,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         (
           await owner.request(
             "/v1/runtime/talk",
-            {
-              version: 1,
-              ...owner.scope,
-              sessionId,
-              messageId: "missing-key",
-              text: "Hello",
-            },
+            { version: 1, ...owner.scope, sessionId, messageId: "missing-key", text: "Hello" },
             MEMBER,
           )
         ).status,
@@ -569,13 +501,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         (
           await owner.request(
             "/v1/runtime/talk",
-            {
-              version: 1,
-              ...owner.scope,
-              sessionId,
-              messageId: "triage-off",
-              text: "Hello",
-            },
+            { version: 1, ...owner.scope, sessionId, messageId: "triage-off", text: "Hello" },
             MEMBER,
           )
         ).status,
@@ -586,9 +512,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ),
       ).toBe("0");
       expect(
-        await owner.sql(
-          "SELECT state_hash FROM clockgrove.partition_states ORDER BY partition_id",
-        ),
+        await owner.sql("SELECT state_hash FROM clockgrove.partition_states ORDER BY partition_id"),
       ).toBe(physicalBeforeErrors);
     });
   },
