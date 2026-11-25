@@ -30,10 +30,11 @@ interface PackChecks {
 }
 
 /**
- * At most 20 history windows (2,000 journal positions, `PostgreSqlObjectHistoryReader`'s 100 each)
- * per Show decisions, counting a window the world's moving revision refused (each such refusal adds
- * one current-revision read): the public entity read is not rate limited, so this bounds one click's
- * reads at 39.
+ * At most 20 entity reads per Show decisions, each with one history window (100 journal positions,
+ * `PostgreSqlObjectHistoryReader`'s window), so at most 2,000 positions. Every read counts: the
+ * first, each older window, and each current-revision re-read after the world's moving revision
+ * refused a cursor (a refused read returns no window, so it is not counted as one). The public entity
+ * read is not rate limited, so this is the whole bound on one click.
  */
 const DECISION_PAGES = 20;
 const ACTOR_NEEDS = ["hunger", "thirst", "wetness", "health", "rain", "uncomfortable", "U"];
@@ -460,27 +461,39 @@ export async function recentDecisions(
   const decisions = selection.history.actions.filter((action) => action.decision === true);
   let cursor = selection.history.beforeSequence;
   let revision = selection.history.observedRevision;
-  let pages = 1;
+  // Entity reads made (the bound) and history windows actually read (what the stop text reports).
+  let reads = 1;
+  let windows = 1;
   let stopped: string | undefined;
+  const bounded = () =>
+    `Read ${windows} history windows in ${reads} entity reads; older decisions were not read.`;
   while (decisions.length < 5 && cursor !== null) {
-    if (pages >= DECISION_PAGES) {
-      stopped = `Read ${pages} history windows; older decisions were not read.`;
+    if (reads >= DECISION_PAGES) {
+      stopped = bounded();
       break;
     }
-    pages += 1;
+    reads += 1;
     try {
       const older = await read({ observedRevision: revision, beforeSequence: cursor });
+      windows += 1;
       decisions.push(...older.history.actions.filter((action) => action.decision === true));
       cursor = older.history.beforeSequence;
     } catch (error) {
       // A cursor names the revision it was read at; the world moving on answers 409
       // (selection_unavailable). The journal below the cursor does not change, so read the
       // current revision and go on from the same cursor. Any other refusal stops and says so.
+      // The refused read returned no window, so it is counted as a read and not as a window.
       if (!(error instanceof ApiRefusal) || error.status !== 409) {
         stopped = `History read refused (${refusalOf(error)}); older decisions were not read.`;
         break;
       }
+      if (reads >= DECISION_PAGES) {
+        stopped = bounded();
+        break;
+      }
+      reads += 1;
       try {
+        // The current revision's newest window was already read, so this adds no window.
         revision = (await read()).history.observedRevision;
       } catch (current) {
         stopped = `History read refused (${refusalOf(current)}); older decisions were not read.`;

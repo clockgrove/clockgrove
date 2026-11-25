@@ -48,3 +48,19 @@ it("says it stopped rather than reporting no decisions when a read is refused", 
   expect(result.decisions).toHaveLength(0);
   expect(result.stopped).toBe("History read refused (status 503); older decisions were not read.");
 });
+
+it("counts every entity read, re-reads after a 409 included, against the bound of 20", async () => {
+  let revision = 0;
+  let reads = 0;
+  const result = await recentDecisions(async (cursor) => {
+    reads += 1;
+    if (cursor === undefined) return page(String(++revision), "300", 0);
+    // The world moves before every older read, so every cursor is refused.
+    throw new ApiRefusal(409);
+  });
+  expect(reads).toBe(20);
+  expect(result.decisions).toHaveLength(0);
+  expect(result.stopped).toBe(
+    "Read 1 history windows in 20 entity reads; older decisions were not read.",
+  );
+});
