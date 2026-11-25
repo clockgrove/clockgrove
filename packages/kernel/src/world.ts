@@ -182,6 +182,7 @@ import {
   type PlanningRequest,
   planFor,
   planningRequestFor,
+  reachedInPlace,
   scoreUtility,
   utilityPlanDisagreement,
   utilityRegistryIdentity,
@@ -1820,7 +1821,8 @@ function runWorld(
       return { steps, links };
     const planId = `plan:${actor.objectId}@${t}`;
     const position = actorPosition(actor, t);
-    if (sameCoordinates(position, target.pose.coordinates)) {
+    // At the target, or under the declared cover of the shelter it seeks, the actor arrives in place.
+    if (reachedInPlace(actor, selected.kind, target, position)) {
       if (prior !== undefined) {
         stopPrior();
         steps.push({

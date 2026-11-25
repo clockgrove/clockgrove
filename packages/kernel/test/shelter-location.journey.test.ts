@@ -691,3 +691,51 @@ it("locates a walker under a cover created over it, and unlocates it when that s
   expect(changes(retired.events)).toEqual([[1000n, actor, null]]);
   expect(replayWorldEvents(created.world.state, retired.events)).toEqual(retired.world.state);
 });
+
+it("seeks a shelter whose declared cover already covers it where it stands, without walking to its centre", async () => {
+  // The actor stands wet in the rain at (300, 0), in the den, whose cover reaches 500 units.
+  const base = await utilityWorld(
+    WITH({
+      ...RAIN,
+      intervalMs: 10000,
+      hunger: 0,
+      initial: [needs(0, 5000, 0)],
+      items: [shelter("den", [0, 0])],
+      starts: [[300, 0]],
+      located: ["den"],
+    }),
+  );
+  const world = {
+    ...base,
+    state: {
+      ...base.state,
+      entities: base.state.entities.map((entity) =>
+        entity.objectId === "den"
+          ? { ...entity, shelter: { ...entity.shelter!, coverRadius: 500n } }
+          : entity,
+      ),
+    },
+  };
+  const run = runChain(world, "seek-under-cover", 3000n);
+  const decisions = tracesOf(run);
+  expect(decisions.length).toBeGreaterThan(0);
+  for (const trace of decisions) {
+    expect(trace.selectedAction).toEqual({ kind: "seek-shelter", targetObjectId: "den" });
+    const den = (
+      trace.candidates as {
+        action: { targetObjectId?: string };
+        features: Record<string, bigint>;
+      }[]
+    ).find((candidate) => candidate.action.targetObjectId === "den")!;
+    // Under the cover, the shelter costs no travel.
+    expect(den.features.travelMs).toBe(0n);
+  }
+  // It arrives in place: no walk to the den's centre, and it stays in the den, drying.
+  expect(run.events.map((event) => event.type)).not.toContain("movement.started");
+  expect(changes(run.events)).toEqual([]);
+  const after = run.world.state.entities.find((entity) => entity.objectId === actor)!;
+  expect(after.pose.coordinates).toEqual([300n, 0n]);
+  expect(after.locationId).toBe("den");
+  expect(after.needs!.wetness).toBeLessThan(5000);
+  expect(replayWorldEvents(world.state, run.events)).toEqual(run.world.state);
+});

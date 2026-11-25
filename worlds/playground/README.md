@@ -4,7 +4,7 @@
 
 The neutral default world, in the spirit of a 3D editor's default plane and cube: simple and quiet, so the
 engine is easy to see and nothing distracts. It is little more than a rock, declared in the disclosed object (interpreted)
-Conversation mode, with a fixed weather exposure and the capability its scenario changes the weather through,
+Conversation mode, declared a shelter (`clockgrove.shelter`, `rainProtection` 5000: others may shelter at it), and with the capability its scenario changes the weather through,
 plus the smallest neutral set the shared conformance suite requires of every committed pack (a cube with a
 need and a puddle it drinks from). Weather does not change the rock's own properties yet. Under
 `pnpm playground` its owner can Talk to the rock: the owner's privacy ceiling holds the `conversation`
@@ -18,7 +18,7 @@ reference-world assumptions. Every identity uses the `playground.` prefix.
 - `playground.cube`, a placed mobile subject with needs (archetype `playground.cube-kind`, trait
   `playground.thirst`);
 - `playground.rock`, a stationary object (archetype `playground.rock-kind`, `interpreted` Conversation mode,
-  weather exposure), bound to the `playground.voice` embodied-dialogue capability;
+  shelter `clockgrove.shelter` with `rainProtection` 5000 and no declared cover), bound to the `playground.voice` embodied-dialogue capability;
 - `playground.puddle`, a water resource holder the cube drinks from;
 - a scripted memory of the puddle for the cube (`cognition/memory.json`);
 - rule `playground.drizzle` (schedule trigger) emitting a weather command intent;

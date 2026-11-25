@@ -78,7 +78,7 @@ bytes in Node and workerd. Opting in changed no raccoon golden's events, schedul
 state, only its artifact hashes and recorded decisions.
 The malformed declarations are named refusal cases of the decisions evidence.
 
-**Plans and arrival.** An actor already at the target's coordinates arrives immediately. Otherwise the
+**Plans and arrival.** An actor already at the target's coordinates, or seeking a shelter whose declared cover already covers its position (`shelterMatches`), arrives immediately where it stands; such a seek's `travelMs` is 0. Otherwise the
 decision emits the set-out `location.changed` when the shelter the actor is in as it sets out differs from its
 location (spatial-movement.md's Leaving rule: the declared cover around its start, its own first, else the first by
 object id, else null), so a located actor leaving cover goes to null and an unlocated one starting under a declared

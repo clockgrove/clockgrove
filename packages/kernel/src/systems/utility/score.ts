@@ -12,6 +12,7 @@ import {
   positionAt,
   type RoutineCandidate,
   sameCoordinates,
+  shelterMatches,
   shelterReflexThreshold,
   type WorldBehaviorPolicy,
   type WorldEntity,
@@ -19,6 +20,23 @@ import {
 } from "@clockgrove/domain";
 import { planMovement } from "../../spatial/movement.js";
 import { utilityPolicyVersion } from "./registry.js";
+
+/**
+ * Whether an actor at `position` has already reached a seek's target: at its coordinates, or, for
+ * a shelter, anywhere within the cover it declares (`shelterMatches`). Such a target costs no
+ * travel and is arrived at in place.
+ */
+export function reachedInPlace(
+  actor: WorldEntity,
+  kind: string,
+  target: WorldEntity,
+  position: readonly bigint[],
+): boolean {
+  return (
+    sameCoordinates(position, target.pose.coordinates) ||
+    (kind === "seek-shelter" && shelterMatches(actor, target, position))
+  );
+}
 
 /** Where the actor is at `time`: along its active movement, else its pose. */
 export function actorPosition(actor: WorldEntity, time: SimTimeMs): readonly bigint[] {
@@ -207,7 +225,8 @@ export function scoreUtility(
     const remembered = effective.some((item) => item.kind === "memory");
     let travelMs = 0n;
     let planned = true;
-    if (sameFrame && !sameCoordinates(position, target.pose.coordinates)) {
+    // A shelter whose declared cover already covers the actor is reached where it stands.
+    if (sameFrame && !reachedInPlace(actor, kind, target, position)) {
       const record = planFor(
         state,
         actor,
