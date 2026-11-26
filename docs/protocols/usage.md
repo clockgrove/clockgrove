@@ -1,6 +1,6 @@
 # Usage events
 
-Issue 329, parts 1 to 3. A developer who deploys a world bills their own players from what the world
+Issue 329, parts 1 to 4. A developer who deploys a world bills their own players from what the world
 reports it used. Clockgrove reports usage; it never handles money. No price, rate card, cost,
 currency, balance, payment provider, wallet or account is part of a usage event or of the engine
 (owner's decision, 2026-11-15: "still just events and hooks. Never dealing with real money or
@@ -308,6 +308,56 @@ signing secret (derived from `USAGE_WEBHOOK_SECRET` and the hook ID, as a webhoo
 sits before each model call, in the player's wait), or a network failure refuses the spend
 (`usage_admission_unavailable`): the hook exists to stop spend, so its silence never admits it.
 
+## World modes
+
+Issue 329, part 4. The developer's server sets each space's mode, for example when a player's
+subscription lapses, and the world shows it with its reason:
+
+| Mode         | Refused                                                                  |
+| ------------ | ------------------------------------------------------------------------ |
+| `active`     | nothing                                                                  |
+| `restricted` | every model and tool call: play and world commands go on without spend   |
+| `read_only`  | every world command and Influence, and every new turn (Talk or a wake) |
+| `paused`     | everything `read_only` refuses, and every model and tool call            |
+
+`POST /v1/runtime/world-mode` sets it:
+
+```json
+{ "version": 1, "tenantId": "…", "worldId": "…", "timelineId": "…", "spaceId": "…",
+  "mode": "restricted", "reason": "subscription_lapsed" }
+```
+
+It answers `{ "mode": "restricted", "reason": "subscription_lapsed" }`. The reason is a code of 1 to
+64 `a-z`, `0-9` or `_`, or `null`; `active` takes none. It is a code, not text, because every
+observer of the world is shown it. A mode holds in the space it is set in, as a budget does. Setting
+it needs `runtime:world-operate` beside the usage reader's `runtime:world-inspect` and
+`operator_evidence` ceiling: it restricts the world and sends nothing outside. Each change is
+audited as subject `world-mode`, the entry the mode.
+
+**Where it holds.**
+
+- A model or tool call, a turn's or a shadow's, is asked admission first: in a `restricted` or
+  `paused` space it is refused before any budget or the hook, with cause `world_mode_restricted` or
+  `world_mode_paused`, and it shows as every refusal of [admission](#admission-before-spend) does
+  (the turn's `usage_refused` service outcome, its run step, its usage event with zero quantities).
+- In a `read_only` or `paused` space, Talk and a wake answer `409 world_mode_refused` before a
+  turn starts, as a mute does; a wake settles with that outcome. A turn accepted before the mode
+  finishes (in a `paused` space, its next model or tool call is refused).
+- In a `read_only` or `paused` space, a world command or Influence answers
+  `409 { "error": "world_mode_refused", "mode": "read_only", "reason": "maintenance" }`. A replay of
+  a command decided before is still answered.
+- Reads are served in every mode: the scene, the world status, inspection and usage.
+
+**What it never touches.** A mode is an admission policy, never world truth: it writes no journal
+event and never moves the world's clock, so a replay never depends on it. `PauseWorld`,
+`ResumeWorld` and `SetClockPolicy` stay the owner's journaled clock controls and are admitted in
+every mode; a `paused` world stops actions and spend, not simulated time, and an owner who wants
+both also pauses its clock.
+
+**How it is shown.** The world status read (`POST /v1/runtime/world-status`) carries
+`"mode": { "mode": …, "reason": … }` while the space is not `active`, and the scene's HUD names
+the mode and its reason beside the clock.
+
 ## Not telemetry
 
 Usage events are the billing record. OpenTelemetry spans, logs and metrics are observability for
@@ -319,5 +369,5 @@ the usage path reads telemetry, and telemetry is never reconciled against usage.
 One immutable row per ended model or tool step, per delivery receipt and per finished shadow
 decision, kept for the world's life; one webhook row per registrar and space; at most 24 budgets
 and one admission hook per space, and a budget tally per world, budgeted scope, subject and day, kept
-for the world's life; one reservation per session, category and asking source, gone when captured
-(`db/retention.json`).
+for the world's life; one reservation per session, category and asking source, gone when captured; one mode per space,
+updated in place (`db/retention.json`).
