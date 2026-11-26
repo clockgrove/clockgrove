@@ -115,6 +115,9 @@ Decided limits:
 Past these limits a request answers `409 conversation_full` or `409 conversation_limit_reached`.
 A Talk to an actor or conversation an operator has muted answers `409 conversation_muted` and starts
 no turn ([context assembly](context-assembly.md#operator-mute)).
+A Talk in a space the developer's server set `read_only` or `paused` answers
+`409 world_mode_refused` and starts no turn; a proactive wake there is held until the mode allows it
+([usage protocol](usage.md#world-modes)).
 The message limit is the runtime setting `CONVERSATION_MESSAGE_LIMIT` (2 to 1,000, default 1,000;
 [runtime runbook](../runbooks/runtime.md#proactive-actor-activation)), which the turn check and
 proactive wake sessions share; migration 0034's check on `message_count` is its ceiling. Proactive wakes don't count against a person's session: each runs in a wake session of the

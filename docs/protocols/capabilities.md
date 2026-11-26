@@ -165,7 +165,7 @@ changes. The owner-defaulted `runtime:usage-webhook` grant, delegable in the sam
 registering a usage webhook, which posts a space's usage to an outside host, and registering a
 usage admission hook, which asks an outside host before each model or tool spend; see the
 [usage protocol](usage.md). Neither is implied by `runtime:world-operate`, which sets a space's
-usage budgets. The isolated secret-provider role confers no installation or capability authority.
+usage budgets and its world mode. The isolated secret-provider role confers no installation or capability authority.
 Provider-session loss fences old credentials and requires reconnect; see the
 [provider contract](mcp.md#postgresql-secret-provider). Credential-backed discovery now has an
 owned coordinator, including OAuth, composed through local authenticated routes and retained provider

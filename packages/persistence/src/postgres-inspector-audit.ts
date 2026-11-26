@@ -47,7 +47,8 @@ export type InspectorAccess = {
         | "scheduled-action"
         | "usage-webhook"
         | "usage-budget"
-        | "usage-admission-hook";
+        | "usage-admission-hook"
+        | "world-mode";
       readonly commandId?: undefined;
       readonly entryId: string;
     }

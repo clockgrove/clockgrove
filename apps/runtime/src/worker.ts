@@ -66,6 +66,7 @@ import {
   decodeUsageQueryRequest,
   decodeUsageWebhookRequest,
   decodeWorldDirectoryRequest,
+  decodeWorldModeRequest,
   type EntitySelection,
   type EntitySelectionRequest,
   encodeFlashback,
@@ -95,6 +96,8 @@ import {
   type UsageWebhookRequest,
   type VoiceMode,
   type WorldDirectory,
+  type WorldModeRequest,
+  type WorldModeState,
   type WorldPersonaId,
   type WorldStatus,
 } from "@clockgrove/contracts";
@@ -247,6 +250,8 @@ export interface RuntimeOwnerBindings {
       readonly ready: boolean;
       readonly tenantMember: boolean;
       readonly stored?: WorldCommandResult;
+      /** The space's mode, read for a command not yet decided (0085). */
+      readonly mode?: WorldModeState;
     }>;
     submit(input: WorldCommandInput, context: TrustedContext): Promise<WorldCommandResult>;
     /** Prepares a command the server builds, in one connection (`PostgreSqlCommandOwner`). */
@@ -300,6 +305,8 @@ export interface RuntimeOwnerBindings {
     UsageAdmissionHookRequest,
     UsageAdmissionHookRegistration
   >;
+  /** Sets the space's mode (0085); needs `runtime:world-operate`. */
+  readonly worldModes?: AuditedPort<WorldModeRequest, WorldModeState>;
   /** Context manifests and governed actor documents (0037), audited like the run inspector. */
   readonly cognition?: {
     readonly context: AuditedPort<ContextInspectRequest, ContextInspection>;
@@ -400,6 +407,7 @@ const CODE_OUTCOMES: Readonly<Record<RuntimeResponseCode, RuntimeLogOutcome>> = 
   world_command_conflict: "conflict",
   command_id_reused: "conflict",
   world_continuation_pending: "conflict",
+  world_mode_refused: "refused",
   world_catching_up: "unavailable",
   owner_unavailable: "unavailable",
   owner_mailbox_full: "unavailable",
@@ -607,6 +615,10 @@ export class RuntimeWorker {
           decodeUsageAdmissionHookRequest,
           this.bindings.usageAdmissionHooks,
         ),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/world-mode")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.runRead(request, note, decodeWorldModeRequest, this.bindings.worldModes),
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/context/inspect")
       return this.answer("causal_chain_inspection_answered", (note) =>
@@ -1000,6 +1012,15 @@ export class RuntimeWorker {
       if (input.mcpClientId !== undefined && context.personaId === undefined)
         throw new AuthorizationRefusedError("world persona required");
       note.authorization = "authorized";
+      // A read-only or paused world takes no command but its clock's controls (0085).
+      if (
+        prepared.mode !== undefined &&
+        (prepared.mode.mode === "read_only" || prepared.mode.mode === "paused") &&
+        input.clockCommand === undefined
+      ) {
+        note.code = "world_mode_refused";
+        return jsonResponse({ error: "world_mode_refused", ...prepared.mode }, 409);
+      }
       return answer(await bindings.submit(input, context), undefined, context.personaId);
     } catch (error) {
       if (error instanceof AuthenticationRefusedError) {

@@ -4,12 +4,15 @@ import {
   decodeFlashbackMarks,
   decodeLivingScene,
   decodeRecordedWhy,
+  type ObjectId,
 } from "@clockgrove/contracts";
+import { QueryObserver } from "@tanstack/react-query";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
+import { WorldClockHud } from "../src/hud.js";
 import type { SceneSession } from "../src/scene-api.js";
-import { useSceneStateProjection } from "../src/scene-queries.js";
+import { useSceneStateProjection, WORLD_STATUS_REFRESH_MS } from "../src/scene-queries.js";
 import { useSceneView, useWhyView } from "../src/scene-state.js";
 import { TextSceneSurfaces } from "../src/text-scene.js";
 import { sceneSession, selectionOf } from "./scene-socket-fixture.js";
@@ -297,4 +300,68 @@ it("opens a region-hosted zone's moments by zoneId from the text path, and close
   expect(
     session.queries.getQueryCache().findAll({ queryKey: ["living-scene", "zone-marks"] }),
   ).toEqual([]);
+});
+
+it("shows a world mode set without a revision: the status is read again on an interval and after a world_mode_refused answer", async () => {
+  const { session } = await observing();
+  const status = (mode?: unknown) => ({
+    ...scope,
+    version: 1,
+    privacyClass: "public_scene",
+    revision: "10",
+    clock: {
+      simulationTime: "20",
+      runState: "running",
+      speed: 1,
+      dayLengthMs: null,
+      day: null,
+      timeOfDayMs: null,
+    },
+    feed: [],
+    ...(mode === undefined ? {} : { mode }),
+  });
+  const reads = () =>
+    vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith("/v1/runtime/world-status"))
+      .length;
+  const hud = () =>
+    renderToStaticMarkup(
+      createElement(WorldClockHud, { status: observer.getCurrentResult().data, scene }),
+    );
+  // The status query as the HUD holds it, at one revision throughout: a mode commits nothing.
+  const observer = new QueryObserver(session.queries, {
+    queryKey: ["living-scene", "status", session.getIntent(), scope, "10"],
+    queryFn: ({ signal }) => session.readWorldStatus(session.getIntent(), scope, signal),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const first = beginReply(() => observer.subscribe(() => undefined));
+  await first(status());
+  expect([reads(), hud().includes("rw-world-mode")]).toEqual([1, false]);
+  // The developer pauses the world; nothing commits, and the next interval shows it.
+  const second = beginReply(() => vi.advanceTimersByTime(WORLD_STATUS_REFRESH_MS));
+  await second(status({ mode: "paused", reason: "subscription_lapsed" }));
+  expect(reads()).toBe(2);
+  expect(hud()).toContain(
+    '<span class="rw-world-mode" role="status" data-world-mode="paused">Play paused: no actions and no model or tool calls (subscription lapsed)</span>',
+  );
+  expect(hud()).toContain('data-run-state="running">Running</span>');
+  // An Influence refused for the mode (here set to `read_only`) reads the status again at once.
+  const refusal = beginReply(() => {
+    void session.influence("a" as ObjectId, "water");
+  });
+  const refetch = beginReply(() => undefined);
+  await refusal(
+    Response.json(
+      { error: "world_mode_refused", mode: "read_only", reason: "maintenance" },
+      { status: 409 },
+    ),
+  );
+  await refetch(status({ mode: "read_only", reason: "maintenance" }));
+  expect(reads()).toBe(3);
+  expect(hud()).toContain(
+    'data-world-mode="read_only">Read-only: the world can be watched, not acted in (maintenance)</span>',
+  );
+  const third = beginReply(() => vi.advanceTimersByTime(WORLD_STATUS_REFRESH_MS));
+  await third(status());
+  expect([reads(), hud().includes("rw-world-mode")]).toEqual([4, false]);
+  observer.destroy();
 });

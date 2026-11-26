@@ -168,6 +168,7 @@ Boundary failures return JSON `{"error": code}` with a stable code, never an exc
 | 409 | `world_command_conflict` (+ `kind`) | Stale epoch or revision; nothing written |
 | 409 | `command_id_reused` | Same command ID with different accepted bytes |
 | 409 | `world_continuation_pending` | The partition's open continuation runs first |
+| 409 | `world_mode_refused` (+ `mode`, `reason`) | The developer's server set the space `read_only` or `paused` ([usage protocol](usage.md#world-modes)); nothing ran. Clock controls are admitted in every mode |
 | 503 | `world_catching_up` | More than 8 catch-up steps (or a boundary advance over budget); retry after `Retry-After` |
 | 500 | `durable_state_corrupt` | Stored state failed decoding or verification |
 | 500 | `world_command_failed` | Server failure; the commit outcome may be unknown |

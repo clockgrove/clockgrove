@@ -2,7 +2,7 @@ import {
   InspectorRateLimitedError,
   type RuntimeAuthorizationContext,
 } from "@clockgrove/application";
-import type { BrowserScope, UsageBudget } from "@clockgrove/contracts";
+import type { BrowserScope, UsageBudget, WorldModeState } from "@clockgrove/contracts";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
 type Row = Record<string, unknown>;
@@ -76,6 +76,33 @@ export class PostgreSqlUsageAdmission {
       return found;
     });
     return String(rows[0]?.id);
+  }
+
+  /** Sets the space's mode (0085), audited as `world-mode` with the mode, and answers it. */
+  async setMode(
+    authorization: RuntimeAuthorizationContext,
+    scope: BrowserScope,
+    state: WorldModeState,
+  ): Promise<WorldModeState> {
+    const rows = await this.within(authorization, async (query) => {
+      const found = await query("SELECT * FROM clockgrove.set_world_mode($1,$2,$3,$4,$5,$6)", [
+        scope.tenantId,
+        scope.worldId,
+        scope.timelineId,
+        scope.spaceId,
+        state.mode,
+        state.reason,
+      ]);
+      await query(
+        "SELECT clockgrove.record_inspector_access($1, $2, $3, NULL, 'allow', 'served', 'world-mode', $4)",
+        [scope.worldId, scope.timelineId, scope.spaceId, state.mode],
+      );
+      return found;
+    });
+    return {
+      mode: rows[0]?.mode as WorldModeState["mode"],
+      reason: (rows[0]?.reason as string | null | undefined) ?? null,
+    };
   }
 
   private within(

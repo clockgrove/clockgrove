@@ -109,6 +109,8 @@ export type RuntimeResponseCode =
   | "conversation_not_found"
   | "inspection_rate_limited"
   | "world_catching_up"
+  /** The world's mode is `read_only` or `paused` (issue 329, 0085). */
+  | "world_mode_refused"
   | "owner_unavailable"
   | "owner_mailbox_full"
   | "owner_mailbox_expired"

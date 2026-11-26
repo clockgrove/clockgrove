@@ -311,3 +311,66 @@ it("counts calls in flight, keeps shadows to their own reservation, tallies a pl
     ]);
   });
 }, 120_000);
+
+it("refuses a turn in flight when its space is paused: its model call, its shadow's and its tool call, with cause world_mode_paused", async () => {
+  await withSpace(async ({ sql, store, usage, turn }) => {
+    await store.open(participant, {
+      scope,
+      actorId: decodeOpaqueId("actor", "ObjectId"),
+      voiceMode: "cognitive",
+    });
+    // The turn was accepted while the space was active; the developer's server then pauses it.
+    const waiting = await turn("s1", "p1", true);
+    await usage.setMode(operator, scope, { mode: "paused", reason: "subscription_lapsed" });
+    const ask = (source?: "moderation_shadow") =>
+      admitSpend(
+        async (op) => op(store),
+        fetch,
+        undefined,
+        participant,
+        waiting,
+        "model_call",
+        undefined,
+        source,
+      );
+    expect([await ask(), await ask("moderation_shadow")]).toEqual([
+      { admitted: false, cause: "world_mode_paused" },
+      { admitted: false, cause: "world_mode_paused" },
+    ]);
+    const dispatched: string[] = [];
+    const host: TurnFiberHost = {
+      holder: "owner",
+      actorId: "actor",
+      stores: async (operation) => operation(store),
+      respond: async () => ({ text: "Done." }),
+      research: {
+        policy: {
+          maxCalls: 3,
+          maxModelSteps: 4,
+          maxCostMicrousd: 250000,
+          modelStepReserveMicrousd: 1,
+        },
+        toolIntended: async () => false,
+        executeTool: async (_participant, _fiber, _proposal, call) => {
+          dispatched.push(call.effectId);
+          return { ...call, status: "succeeded", code: null, text: "Reading: 23", costMicrousd: 0 };
+        },
+      },
+      admit: (p, f, category, resource) =>
+        admitSpend(async (op) => op(store), fetch, undefined, p, f, category, resource),
+      capabilityRevision: () => 1,
+      checkpointed: async () => {},
+      durable: async (_fiber, _participant, run) => run(),
+    };
+    await new TurnFibers(host).activate(participant, waiting);
+    expect(dispatched).toEqual([]);
+    expect(
+      await sql(`SELECT s.status || '|' || s.outcome_code || '|' || s.summary
+          FROM clockgrove.run_steps s JOIN clockgrove.agent_runs r USING (tenant_id, run_id)
+         WHERE r.input_message_id = 'p1' AND s.kind = 'tool_execution'`),
+    ).toBe("failed|usage_refused|Usage refused: world_mode_paused");
+    // Active again: the same space admits the call.
+    await usage.setMode(operator, scope, { mode: "active", reason: null });
+    expect(await ask()).toEqual({ admitted: true });
+  });
+}, 120_000);

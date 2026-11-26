@@ -144,6 +144,7 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'usage_tallies', 'none'),
   ('clockgrove', 'usage_reservations', 'none'),
   ('clockgrove', 'usage_admission_hooks', 'none'),
+  ('clockgrove', 'world_modes', 'none'),
   ('clockgrove', 'moderation_shadow', 'participant_read'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
@@ -308,7 +309,7 @@ BEGIN
         'clockgrove.wake_triage', 'clockgrove.mcp_installations', 'clockgrove.mcp_bindings', 'clockgrove.moderation_shadow',
         'clockgrove.usage_events', 'clockgrove.actor_mutes', 'clockgrove.actor_mute_changes',
         'clockgrove.usage_webhooks', 'clockgrove.usage_budgets', 'clockgrove.usage_tallies',
-        'clockgrove.usage_reservations', 'clockgrove.usage_admission_hooks'
+        'clockgrove.usage_reservations', 'clockgrove.usage_admission_hooks', 'clockgrove.world_modes'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -2946,6 +2947,37 @@ BEGIN
       'run_step');
     RAISE EXCEPTION 'another principal was admitted on a turn' USING ERRCODE = 'XX999';
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+END
+$$;
+ROLLBACK;
+
+-- World modes (0085): the table is reachable only through its definer functions; a member without
+-- `runtime:world-operate` cannot set a mode, and another tenant's mode is not read.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a', '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}');
+DO $$
+DECLARE
+  statement text;
+BEGIN
+  FOREACH statement IN ARRAY ARRAY[
+    'SELECT count(*) FROM clockgrove.world_modes',
+    'INSERT INTO clockgrove.world_modes (tenant_id, world_id, timeline_id, space_id, mode, principal_id) VALUES (''tenant-a'', ''world-a'', ''timeline-a'', ''space-a'', ''active'', ''principal-a'')',
+    'UPDATE clockgrove.world_modes SET mode = ''active''',
+    'DELETE FROM clockgrove.world_modes'
+  ] LOOP
+    BEGIN
+      EXECUTE statement;
+      RAISE EXCEPTION 'world modes reached directly: %', statement USING ERRCODE = 'XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  END LOOP;
+  BEGIN
+    PERFORM clockgrove.set_world_mode('tenant-a', 'world-a', 'timeline-a', 'space-a', 'paused',
+      'subscription_lapsed');
+    RAISE EXCEPTION 'a member without the grants set a mode' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  IF EXISTS (SELECT 1 FROM clockgrove.world_mode('tenant-b', 'world-b', 'timeline-b', 'space-b')) THEN
+    RAISE EXCEPTION 'another tenant read a world mode' USING ERRCODE = 'XX999';
+  END IF;
 END
 $$;
 ROLLBACK;

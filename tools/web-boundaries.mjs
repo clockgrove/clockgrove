@@ -136,7 +136,8 @@ export function assertProjectionContracts(sources) {
     WorldDirectory: { version: "1", entries: "readonly WorldDirectoryEntry[]" },
     WorldClock: { simulationTime: "string", runState: '"running" | "paused"', speed: "number", dayLengthMs: "string | null", day: "string | null", timeOfDayMs: "string | null" },
     WorldFeedItem: { category: "WorldFeedCategory", objectId: "ObjectId | null" },
-    WorldStatus: { version: "1", privacyClass: '"public_scene"', revision: "string", clock: "WorldClock", feed: "readonly WorldFeedItem[]" },
+    WorldStatus: { version: "1", privacyClass: '"public_scene"', revision: "string", clock: "WorldClock", feed: "readonly WorldFeedItem[]", "mode?": "WorldModeState" },
+    WorldModeState: { mode: "WorldMode", reason: "string | null" },
     LivingWeather: { rainIntensity: "number" },
     LivingUnit: { name: "string", fractionalDigits: "number" },
     LivingAxis: { name: "string", positiveDirection: "string" },
@@ -260,6 +261,7 @@ export function assertProjectionContracts(sources) {
     },
   };
   const literals = {
+    WorldMode: ["active", "restricted", "read_only", "paused"],
     PublicRoutineFeatureName: ["hunger", "wetness", "rain", "protection", "thirst", "health", "uncomfortable", "U", "travelMs", "perceived", "remembered", "expectation", "freshness"],
     PublicRoutineExclusion: ["outside-current-space-or-frame", "no-rain-protection", "not-perceived", "unavailable", "unreachable"],
     WorldFeedCategory: [
