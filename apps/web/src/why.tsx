@@ -118,7 +118,11 @@ export function RecordedWhyPanel({ session }: { readonly session: SceneSession }
                           ? "yielded by this plant"
                           : cause.cause === "boundary-exchange"
                             ? `${cause.direction === "import" ? "imported from outside the world at" : "exported outside the world to"} ${cause.boundaryName} (${cause.boundaryId}) by ${cause.actorId}`
-                            : `transferred from ${cause.fromObjectId}`}
+                            : cause.cause === "purchase"
+                              ? "brought in by an outside purchase"
+                              : cause.cause === "refund"
+                                ? "taken out by a purchase's refund"
+                                : `transferred from ${cause.fromObjectId}`}
                       {cause.processId === undefined ? "" : ` by process ${cause.processId}`}
                       {`; simulation time ${cause.simulationTime}; event ${cause.eventId}`}
                     </li>

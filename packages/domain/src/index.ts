@@ -1,7 +1,6 @@
 export * from "./actor-process.js";
 export * from "./archetypes/index.js";
 export * from "./boundary-exchange.js";
-export * from "./purchase.js";
 export * from "./commands/closed-world.js";
 export * from "./commands/containment-commands.js";
 export * from "./commands/movement-commands.js";
@@ -47,6 +46,7 @@ export * from "./events/movement-events.js";
 export * from "./events/portal-events.js";
 export * from "./events/world-events.js";
 export * from "./lifecycle/index.js";
+export * from "./purchase.js";
 export * from "./random.js";
 export * from "./rules/index.js";
 export * from "./spatial/index.js";

@@ -19,7 +19,6 @@ import {
   validateBoundaryExchangeState,
   validateBoundaryExchanges,
 } from "./boundary-exchange.js";
-import type { PurchaseEventData } from "./purchase.js";
 import {
   type ContainmentState,
   containmentSchema,
@@ -62,6 +61,7 @@ import {
   validateLifecycleState,
 } from "./lifecycle/lifecycle.js";
 import { isSealedLifecycleLineage, sealLifecycleLineage } from "./lifecycle/sealed-lineage.js";
+import type { PurchaseEventData } from "./purchase.js";
 import type { RandomDrawMetadata } from "./random.js";
 import { type AnchorGraph, parseAnchorGraph } from "./spatial/anchors.js";
 import { validateSemanticHierarchy } from "./spatial/hierarchy.js";

@@ -179,6 +179,23 @@ export class PostgreSqlWorldOwnerReader {
     });
   }
 
+  /** The space's committed partition revision under `authorization`. */
+  revision(
+    authorization: RuntimeAuthorizationContext,
+    scope: RuntimeAuthorizationScope,
+  ): Promise<bigint> {
+    return withClientTransaction(this.client, { authorization }, async () => {
+      const result = await this.client.query(
+        `SELECT state.revision::text AS revision
+           ${ROUTE_FROM}
+          WHERE head.tenant_id = $1 AND head.world_id = $2 AND head.timeline_id = $3 AND head.space_id = $4`,
+        [scope.tenantId, scope.worldId, scope.timelineId, scope.spaceId],
+      );
+      if (result.rows.length !== 1) throw new JournalRouteNotFoundError(scope.spaceId);
+      return BigInt(text(record(result.rows[0], "partition revision"), "revision"));
+    });
+  }
+
   isTenantMember(
     authorization: RuntimeAuthorizationContext,
     scope: RuntimeAuthorizationScope,

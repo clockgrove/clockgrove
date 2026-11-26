@@ -149,3 +149,16 @@ changes nothing. Replayed exchange events reproduce both quantities and remainin
 The native boundary journey proves exact finite imports/exports, ordinary actor/carrier checks,
 forged-journal rejection, no-declaration refusal and replay/advance parity using fixture-world
 inputs. Boundary declarations grant no application permission and introduce no external service.
+
+## Purchase grants
+
+`purchase.grant` and `purchase.refund` share the version-1 payload `{schemaVersion: 1, purchaseId,
+principalId, objectId, kind, quantity}` (issue 329; [purchase grants](../../../docs/protocols/usage.md#purchase-grants)).
+`resource.purchase-identity@1` refuses either at `commandId` unless the command ID is
+`purchase:<purchaseId>` or `purchase-refund:<purchaseId>`, so one purchase id is one journal command
+and the journal's command identity makes it exactly once. A grant journals
+`resource.purchase-granted` crediting `quantity` into the holder, which must exist, hold that kind
+and, if perishable, be empty (`payload.kind`, `payload.objectId`). A refund journals
+`resource.purchase-refunded` removing the smaller of `quantity` and what the holder now holds of
+that kind, 0 when the holder is gone or holds another kind; it is never refused for lack of
+material. Both events retain the payload and sealed command attribution.

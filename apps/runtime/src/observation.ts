@@ -252,6 +252,14 @@ export function feedSentence(
           Kind === undefined
           ? undefined
           : `${named("actorId")} ${str("direction") === "import" ? "imported" : "exported"} ${String(field("quantity"))} ${kind} ${str("direction") === "import" ? "from" : "to"} outside the world at ${str("boundaryName")} ${str("direction") === "import" ? "into" : "from"} ${who}.`;
+      case "resource.purchase-granted":
+        return who === undefined || Kind === undefined
+          ? undefined
+          : `An outside purchase brought ${String(field("quantity"))} ${kind} into ${who}.`;
+      case "resource.purchase-refunded":
+        return who === undefined || Kind === undefined || field("quantity") === 0
+          ? undefined
+          : `A refund took ${String(field("quantity"))} ${kind} out of ${who}.`;
       case "resource.spoiled":
         return who === undefined || Kind === undefined ? undefined : `${Kind} at ${who} spoiled.`;
       case "lifecycle.born":
@@ -519,6 +527,8 @@ const SCENE_BACKFILL_EVENT_TYPES: ReadonlySet<string> = new Set([
   "resource.consumed",
   "resource.transferred",
   "resource.boundary-exchanged",
+  "resource.purchase-granted",
+  "resource.purchase-refunded",
   "resource.spoiled",
   "resource.weather-integrated",
 ]);

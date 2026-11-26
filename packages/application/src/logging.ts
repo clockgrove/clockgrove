@@ -111,6 +111,7 @@ export type RuntimeResponseCode =
   | "world_catching_up"
   /** The world's mode is `read_only` or `paused` (issue 329, 0085). */
   | "world_mode_refused"
+  | "purchase_not_granted"
   | "owner_unavailable"
   | "owner_mailbox_full"
   | "owner_mailbox_expired"

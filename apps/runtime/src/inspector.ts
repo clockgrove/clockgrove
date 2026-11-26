@@ -453,6 +453,15 @@ function publicResourceCauses(view: CausalCommandView): readonly PublicResourceC
         (payload.direction !== "import" && payload.direction !== "export")
       )
         throw new InspectionIntegrityError(view.receipt.commandId, "events");
+    } else if (
+      event.type === "resource.purchase-granted" ||
+      event.type === "resource.purchase-refunded"
+    ) {
+      // An outside purchase or its refund; the purchase id and the player stay off the public Why.
+      cause = event.type === "resource.purchase-granted" ? "purchase" : "refund";
+      kind = payload.kind as PublicResourceCause["kind"];
+      quantity = payload.quantity;
+      objectId = payload.objectId;
     } else return [];
     if (quantity === 0 || quantity === undefined) return [];
     if (

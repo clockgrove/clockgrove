@@ -71,6 +71,7 @@ import {
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import { OwnerMailboxError, type OwnerMailboxRefusal } from "./mailbox.js";
 import { StoredRejectionError } from "./owners.js";
+import { isPurchaseCommandId, PURCHASE_COMMAND_TYPES, PURCHASE_GRANT } from "./purchases.js";
 import {
   RuntimeEpochConflictError,
   type RuntimeEpochs,
@@ -137,6 +138,9 @@ export function decodeWorldCommandInput(value: unknown): WorldCommandInput {
     throw new CanonicalNodeError("command node is not canonical");
   if (isTrustedId(command.commandId))
     throw new ContractDecodeError("command.commandId", "reserved for trusted commands");
+  // Only the purchase route builds a purchase's command (`POST /v1/runtime/purchases`).
+  if (PURCHASE_COMMAND_TYPES.includes(command.type) || isPurchaseCommandId(command.commandId))
+    throw new ContractDecodeError("command", "reserved for purchases");
   return {
     scope,
     epochs: {
@@ -157,6 +161,12 @@ export interface BuiltCommandFields {
   readonly context?: { readonly correlationId: string; readonly requestId: string };
 }
 
+/** What `prepareBuilt` hands its builder: the server-chosen fields and the expected revision. */
+export interface PreparedCommandFields extends BuiltCommandFields {
+  /** The revision the first attempt expected, or the space's now for a first attempt. */
+  readonly expectedRevision?: bigint;
+}
+
 export interface PreparedBuiltCommand {
   readonly tenantMember: boolean;
   readonly ready: boolean;
@@ -168,7 +178,7 @@ export interface PreparedBuiltCommand {
 }
 
 /** Reads the server-chosen fields back out of a receipt's canonical command bytes. */
-function builtFieldsOf(bytes: Uint8Array, commandId: CommandId): BuiltCommandFields {
+function builtFieldsOf(bytes: Uint8Array, commandId: CommandId): PreparedCommandFields {
   const field = (node: unknown, key: string): unknown => {
     if (!Array.isArray(node) || node[0] !== "record" || !Array.isArray(node[1]))
       throw new CommandIdempotencyInvariantError(commandId);
@@ -183,7 +193,9 @@ function builtFieldsOf(bytes: Uint8Array, commandId: CommandId): BuiltCommandFie
   const epochs = field(root, "epochs");
   const command = field(root, "command");
   const context = field(command, "context");
+  const revision = field(field(command, "expected"), "partitionRevision");
   return {
+    ...(revision === undefined ? {} : { expectedRevision: BigInt(leaf(revision, "bigint")) }),
     epochs: {
       routingEpoch: BigInt(leaf(field(epochs, "routingEpoch"), "bigint")),
       authorityEpoch: BigInt(leaf(field(epochs, "authorityEpoch"), "bigint")),
@@ -263,7 +275,7 @@ export class PostgreSqlCommandOwner {
     scope: RuntimeScope,
     principalId: import("@clockgrove/contracts").PrincipalId,
     commandId: CommandId,
-    build: (fields: BuiltCommandFields) => WorldCommandInput,
+    build: (fields: PreparedCommandFields) => WorldCommandInput,
   ): Promise<PreparedBuiltCommand> {
     const authorization = {
       tenantId: scope.tenantId,
@@ -302,6 +314,7 @@ export class PostgreSqlCommandOwner {
     const route = await this.reader.route(authorization, scope);
     const input = build({
       epochs: { routingEpoch: route.routingEpoch, authorityEpoch: route.routingEpoch },
+      expectedRevision: await this.reader.revision(authorization, scope),
     });
     return {
       tenantMember: true,
@@ -911,10 +924,11 @@ export class PostgreSqlCommandOwner {
 /**
  * Clock controls need their own grant, and so does an owner's surface repair (issue 267): it zeroes
  * a zone and clears its marks, so it is the world owner's right, `runtime:world-repair`.
- * `runtime:world-command` alone never allows either.
+ * `runtime:world-command` alone never allows either. A purchase needs `runtime:world-purchase`.
  */
 export function worldCommandGrant(input: WorldCommandInput): string {
   if (isClockCommand(input.command.type)) return "runtime:world-clock";
+  if (PURCHASE_COMMAND_TYPES.includes(input.command.type)) return PURCHASE_GRANT;
   return input.command.type === "surface.repair" ? "runtime:world-repair" : "runtime:world-command";
 }
 

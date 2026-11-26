@@ -21,7 +21,9 @@ and plant stage agrees with growing time.
 **Closed world and journal accounting.** Genesis quantities are the declared initial inventory.
 Later increases require `resource.weather-integrated@1` collection, a declared
 `growth.stage-changed@1` yield, `resource.transferred@1` debiting an existing holder, or an
-explicitly declared finite `resource.boundary-exchanged@1` import. Boundary exports remove
+explicitly declared finite `resource.boundary-exchanged@1` import, or a
+`resource.purchase-granted@1` outside purchase ([purchase grants](containment.md#purchase-grants)).
+A `resource.purchase-refunded@1` refund is a checked removal. Boundary exports remove
 material and debit a finite absorption quota; see [finite boundary trips](containment.md#finite-boundary-trips).
 `resource.quantity-conservation@1` balances every holder and resource kind, as well as global
 food and water totals, against the command's journal events. An unjournaled movement, kind swap

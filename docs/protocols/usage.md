@@ -347,7 +347,8 @@ audited as subject `world-mode`, the entry the mode.
   held, not lost: it stays pending, as a wake waiting on a busy conversation does, and runs at the
   actor's first alarm once the space is `active` or `restricted` again. A turn accepted before the
   mode finishes (in a `paused` space, its next model or tool call is refused).
-- In a `read_only` or `paused` space, a world command or Influence answers
+- In a `read_only` or `paused` space, a world command or Influence (not a
+  [purchase](#purchase-grants)) answers
   `409 { "error": "world_mode_refused", "mode": "read_only", "reason": "maintenance" }`. A replay of
   a command decided before is still answered.
 - Reads are served in every mode: the scene, the world status, inspection and usage.
@@ -365,6 +366,55 @@ implies ([world commands](runtime-world-commands.md#authority-and-readiness)), s
 `"mode": { "mode": …, "reason": … }` while the space is not `active`, and the scene's HUD names
 the mode and its reason beside the clock. A mode writes no revision, so the browser reads the status
 again every 10 s while observing, and at once after a `world_mode_refused` answer.
+
+## Purchase grants
+
+Issue 329, part 5. After the developer's own checkout, their server reports the purchase and the
+engine puts the item into the world once per purchase id. The engine never sees a price, currency,
+balance or payment account: a purchase is a quantity of a world resource and an id.
+
+`POST /v1/runtime/purchases` grants:
+
+```json
+{ "version": 1, "tenantId": "…", "worldId": "…", "timelineId": "…", "spaceId": "…",
+  "action": "grant", "purchaseId": "cs_test_1", "principalId": "<player>",
+  "objectId": "fixture.household-food", "resourceKind": "food", "quantity": 2 }
+```
+
+It answers `200` with the receipt
+`{ "purchaseId": "cs_test_1", "action": "grant", "commandId": "purchase:cs_test_1", "status": "committed", "revision": "…", "quantity": 2 }`.
+
+- **The item.** `quantity` (1 to 1,000,000) of `food` or `water` placed in the existing resource
+  holder `objectId` the developer names, under the checks a transfer's target meets (the holder's
+  kind, a perishable holder's single batch). A player has no in-world inventory of their own, so the
+  developer chooses the holder that stands for the player's item. `principalId` is the player the
+  purchase is for; it is recorded in the journal, not shown on the scene or in Why.
+- **Exactly once.** The server builds the world command, as it builds an Influence intent; its
+  command ID is `purchase:<purchaseId>` and the kernel refuses any other pairing, so the journal's
+  command-ID identity grants a purchase once. The same request again answers the stored receipt;
+  a different request under the same purchase id is `409 command_id_reused`. A purchase id is 1 to
+  128 of `A-Z`, `a-z`, `0-9`, `.`, `_`, `:` or `-`, unique per timeline. A grant the world refuses
+  (no such holder, another kind, a perishable holder already holding food) answers `409` with
+  `"status": "rejected"` and its reason, and stays refused for that purchase id.
+- **Its cause.** The grant journals `resource.purchase-granted@1`
+  `{purchaseId, principalId, objectId, kind, quantity}`. It is one of the closed world's checked
+  causes of an increase ([kernel ecology](../../packages/kernel/docs/ecology.md)), so a replay
+  reproduces it and Why's recorded resource causes explain the material as `"cause": "purchase"`,
+  without the player. The world's feed narrates "An outside purchase brought 2 food into …".
+- **Refunds.** `"action": "refund"` with the grant's fields journals
+  `resource.purchase-refunded@1` under `purchase-refund:<purchaseId>`, once. It removes what is left
+  of the grant in its holder, never more than was granted and never below zero (a consumed item is
+  not taken back from elsewhere); the receipt's `quantity` and the event's are what it removed, 0
+  when nothing is left. A refund needs the purchase's committed grant with the same fields, else
+  `409 purchase_not_granted`. Why shows a removal as `"cause": "refund"`.
+- **Authority.** A purchase needs `runtime:world-purchase`, which no other grant implies and no
+  one holds until it is given ([capabilities](capabilities.md)). A refused caller gets `403` and no
+  receipt is written, so no one can take a purchase id before the developer's server.
+  `POST /v1/runtime/commands` refuses both command types and their command IDs (`400
+  invalid_world_command`), and an actor's `world.command` cannot name them (the kernel's ID pairing).
+- **Modes.** No [world mode](#world-modes) refuses a purchase or a refund: they record the
+  developer's outside bookkeeping, as clock controls are exempt, so a refund is recorded while play
+  is paused.
 
 ## Not telemetry
 

@@ -55,6 +55,7 @@ import {
   decodeInfluenceRequest,
   decodeObservationRequest,
   decodeOpaqueId,
+  decodePurchaseRequest,
   decodeRecordedWhyRequest,
   decodeRunInspectRequest,
   decodeRunSearchRequest,
@@ -78,6 +79,7 @@ import {
   type InfluenceRequest,
   type LivingScene,
   type PrincipalId,
+  type PurchaseRequest,
   type RecordedWhy,
   type RunInspectRequest,
   type RunSearch,
@@ -172,6 +174,12 @@ import {
   StoredRejectionError,
   storedNoOpOutcome,
 } from "./owners.js";
+import {
+  PURCHASE_GRANT,
+  purchaseCommand,
+  purchaseReceipt,
+  purchaseRequestCommandId,
+} from "./purchases.js";
 import { runtimeRouteName } from "./routing.js";
 import { RunNotFoundError } from "./runs.js";
 import { SurfaceDecalBudgetRefusedError } from "./scene-presentation.js";
@@ -188,9 +196,9 @@ import {
 } from "./types.js";
 import type { ClientViewInput } from "./view-trace.js";
 import {
-  type BuiltCommandFields,
   decodeWorldCommandInput,
   type PreparedBuiltCommand,
+  type PreparedCommandFields,
   runtimeFailureClass,
   WorldCatchingUpError,
   type WorldCommandInput,
@@ -259,7 +267,7 @@ export interface RuntimeOwnerBindings {
       scope: RuntimeScope,
       principalId: import("@clockgrove/contracts").PrincipalId,
       commandId: import("@clockgrove/contracts").CommandId,
-      build: (fields: BuiltCommandFields) => WorldCommandInput,
+      build: (fields: PreparedCommandFields) => WorldCommandInput,
     ): Promise<PreparedBuiltCommand>;
     deny(
       input: WorldCommandInput,
@@ -408,6 +416,7 @@ const CODE_OUTCOMES: Readonly<Record<RuntimeResponseCode, RuntimeLogOutcome>> = 
   command_id_reused: "conflict",
   world_continuation_pending: "conflict",
   world_mode_refused: "refused",
+  purchase_not_granted: "refused",
   world_catching_up: "unavailable",
   owner_unavailable: "unavailable",
   owner_mailbox_full: "unavailable",
@@ -558,6 +567,8 @@ export class RuntimeWorker {
       return this.answer("world_command_answered", (note) => this.worldCommand(request, note));
     if (request.method === "POST" && url.pathname === "/v1/runtime/influence")
       return this.answer("world_command_answered", (note) => this.influence(request, note));
+    if (request.method === "POST" && url.pathname === "/v1/runtime/purchases")
+      return this.answer("world_command_answered", (note) => this.purchase(request, note));
     if (
       request.method === "POST" &&
       (ACTIVATION_ROUTES as readonly string[]).includes(url.pathname)
@@ -959,23 +970,96 @@ export class RuntimeWorker {
     );
   }
 
+  /**
+   * A purchase grant or refund from the developer's server (issue 329): the server builds the
+   * `purchase.grant` / `purchase.refund` command under `runtime:world-purchase`, its command ID the
+   * purchase id's, so the journal grants a purchase once and a retry replays its receipt. A refused
+   * caller writes no receipt, so no one can take a purchase id. A refund needs the purchase's
+   * committed grant with the same fields. No world mode refuses either: they record the developer's
+   * outside bookkeeping, as clock controls are exempt.
+   */
+  private purchase(request: Request, note: RequestNote): Promise<Response> {
+    let purchase: PurchaseRequest | undefined;
+    return this.submitWorldCommand(
+      request,
+      note,
+      async (identified) => {
+        const decoded = decodePurchaseRequest(await request.json());
+        purchase = decoded;
+        const prepareBuilt = this.bindings.worldCommands?.prepareBuilt;
+        if (prepareBuilt === undefined) throw new WorldOwnerUnavailableError();
+        const metadata = readMetadata(identified.correlationHeader);
+        const issuedAt = new Date().toISOString();
+        const prepare = (action: PurchaseRequest["action"]) =>
+          prepareBuilt(
+            decoded.scope,
+            identified.principalId,
+            decodeOpaqueId(purchaseRequestCommandId(action, decoded.purchaseId), "CommandId"),
+            (fields) =>
+              purchaseCommand(decoded, action, identified.principalId, {
+                epochs: fields.epochs,
+                expectedRevision: fields.expectedRevision ?? 0n,
+                context: fields.context ?? metadata,
+                issuedAt: fields.issuedAt ?? issuedAt,
+              }),
+          );
+        if (decoded.action === "refund") {
+          let granted: PreparedBuiltCommand | undefined;
+          try {
+            granted = await prepare("grant");
+          } catch (error) {
+            if (!(error instanceof CommandIdempotencyInvariantError)) throw error;
+          }
+          if (granted?.input === undefined && granted !== undefined)
+            throw new AuthorizationRefusedError("tenant membership required");
+          if (granted?.stored?.outcome !== "committed") return { refused: "purchase_not_granted" };
+        }
+        const prepared = await prepare(decoded.action);
+        if (prepared.input === undefined)
+          throw new AuthorizationRefusedError("tenant membership required");
+        return { input: prepared.input, prepared };
+      },
+      (result, replayed) => {
+        note.outcome = replayed ?? result.outcome;
+        if (result.value.status === "committed") note.revision = result.value.revision;
+        return jsonResponse(
+          purchaseReceipt(purchase as PurchaseRequest, result),
+          worldResultStatus(result),
+        );
+      },
+      { grant: PURCHASE_GRANT, recordDenial: false, modeExempt: true },
+    );
+  }
+
   private async submitWorldCommand(
     request: Request,
     note: RequestNote,
-    decode: (identified: IdentifiedRuntimeRequest) => Promise<{
-      readonly input: WorldCommandInput;
-      readonly prepared?: PreparedBuiltCommand;
-    }>,
+    decode: (identified: IdentifiedRuntimeRequest) => Promise<
+      | {
+          readonly input: WorldCommandInput;
+          readonly prepared?: PreparedBuiltCommand;
+        }
+      | { readonly refused: "purchase_not_granted" }
+    >,
     answer: (
       result: WorldCommandResult,
       replayed: "replayed" | undefined,
       personaId?: WorldPersonaId,
     ) => Response,
+    options: {
+      /** The grant the command needs instead of `worldCommandGrant`'s. */
+      readonly grant?: string;
+      /** Whether a refused caller's command is recorded as a denied receipt (the default). */
+      readonly recordDenial?: false;
+      /** Whether the command is taken in every world mode, as a clock control is. */
+      readonly modeExempt?: true;
+    } = {},
   ): Promise<Response> {
     let input: WorldCommandInput | undefined;
     try {
       const identified = await this.authenticator.identify(request.clone());
       const decoded = await decode(identified);
+      if ("refused" in decoded) return refusal(note, decoded.refused, 409);
       input = decoded.input;
       note.ids = {
         ...input.scope,
@@ -999,10 +1083,14 @@ export class RuntimeWorker {
             requestId: input.command.context.requestId,
             correlationId: input.command.context.correlationId,
           },
-          worldCommandGrant(input),
+          options.grant ?? worldCommandGrant(input),
         );
       } catch (error) {
-        if (error instanceof AuthorizationRefusedError && error.denial !== undefined) {
+        if (
+          error instanceof AuthorizationRefusedError &&
+          error.denial !== undefined &&
+          options.recordDenial !== false
+        ) {
           note.authorization = "denied";
           const result = await bindings.deny(input, identified.principalId, error.denial);
           return answer(result, undefined, error.denial.inputs.personaId);
@@ -1016,7 +1104,8 @@ export class RuntimeWorker {
       if (
         prepared.mode !== undefined &&
         (prepared.mode.mode === "read_only" || prepared.mode.mode === "paused") &&
-        input.clockCommand === undefined
+        input.clockCommand === undefined &&
+        options.modeExempt !== true
       ) {
         note.code = "world_mode_refused";
         return jsonResponse({ error: "world_mode_refused", ...prepared.mode }, 409);

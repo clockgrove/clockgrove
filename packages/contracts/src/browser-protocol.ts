@@ -1293,7 +1293,7 @@ export type PublicCausalEntry =
 export interface PublicResourceCause {
   readonly eventId: EventId;
   readonly simulationTime: string;
-  readonly cause: "rain" | "growth" | "transfer" | "boundary-exchange";
+  readonly cause: "rain" | "growth" | "transfer" | "boundary-exchange" | "purchase" | "refund";
   readonly kind: "food" | "water";
   readonly quantity: number;
   readonly objectId: ObjectId;
@@ -1315,7 +1315,7 @@ function decodePublicResourceCause(value: unknown, path: string): PublicResource
   );
   const cause = literal(
     v.cause,
-    ["rain", "growth", "transfer", "boundary-exchange"],
+    ["rain", "growth", "transfer", "boundary-exchange", "purchase", "refund"],
     `${path}.cause`,
   );
   const kind = literal(v.kind, ["food", "water"], `${path}.kind`);

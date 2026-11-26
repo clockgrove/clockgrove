@@ -143,7 +143,10 @@ resume a paused clock.
 
 Execution requires committed participation in the requested world and `runtime:world-command`;
 clock controls require `runtime:world-clock` instead, and an owner's surface repair
-(`surface.repair`) `runtime:world-repair`. No one of these grants implies another.
+(`surface.repair`) `runtime:world-repair`. A purchase's `purchase.grant` and `purchase.refund`
+are built only by `POST /v1/runtime/purchases` under `runtime:world-purchase`; this route refuses
+both types and the `purchase:` and `purchase-refund:` command IDs ([purchase
+grants](usage.md#purchase-grants)). No one of these grants implies another.
 Workspace administration, workspace grants and `runtime:no-op` never grant physical mutation.
 Authentication failures return HTTP 401. Principals outside the named tenant receive no world data
 or readiness disclosure. An authenticated tenant member receives HTTP 409 with
