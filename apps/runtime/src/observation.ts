@@ -52,6 +52,7 @@ import {
   PostgreSqlObjectHistoryReader,
   PostgreSqlWorldDirectoryReader,
   PostgreSqlWorldOwnerReader,
+  worldMode,
 } from "@clockgrove/persistence";
 import { OBSERVE_GRANT } from "./inspector.js";
 import { interactionsOf } from "./interactions.js";
@@ -356,6 +357,8 @@ export class PostgreSqlWorldStatusReader {
       100,
       shown,
     );
+    // The developer's mode of the space (0085), shown to every observer when it is not active.
+    const mode = await worldMode(this.client, scope);
     return {
       version: 1,
       privacyClass: "public_scene",
@@ -392,6 +395,7 @@ export class PostgreSqlWorldStatusReader {
           },
         ];
       }),
+      ...(mode.mode === "active" ? {} : { mode }),
     };
   }
 }

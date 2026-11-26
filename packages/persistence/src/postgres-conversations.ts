@@ -71,6 +71,7 @@ import {
   type TalkRunStart,
 } from "./postgres-runs.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
+import { worldMode, worldModeRefusesActions } from "./postgres-world-modes.js";
 
 type Row = Record<string, unknown>;
 
@@ -481,6 +482,15 @@ export class PostgreSqlConversationStore implements ConversationStore {
       ))
     )
       throw new ConversationRefusedError("conversation_muted");
+    // A read-only or paused world starts no new turn (0085); a turn it already accepted finishes.
+    if (
+      receipt === undefined &&
+      existing === undefined &&
+      worldModeRefusesActions(
+        await this.transaction(participant, () => worldMode(this.client, session.scope)),
+      )
+    )
+      throw new ConversationRefusedError("world_mode_refused");
     // Compare the complete normalized metadata before returning even an already committed receipt.
     await this.put(
       participant,

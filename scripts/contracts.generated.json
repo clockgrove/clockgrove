@@ -6,7 +6,7 @@
 
     "asset-style-profile.ts": "a46acfbe662b7c21474f42e452a24f36681000746339e39c3afc4a903dc6f61e",
 
-    "browser-protocol.ts": "6ee2d268276d4e1eb94fd51907341365a47119bdca9b81694dfebfeadf687c9b",
+    "browser-protocol.ts": "0e57f87d8362b0df26f40f9fe68826572c70dca1bddc6a0d68b3f442c5864167",
 
     "channels.ts": "8606814b06b231f896a88935b3070a0d5abf2bb4b713dacb2bfb06f630e1a9d6",
 
@@ -24,7 +24,7 @@
 
     "ids.ts": "9169d66a2fc1c396180a72952d25243c15134e5225d0821a453a04c51a5c4559",
 
-    "index.ts": "9d7de4397f4cda1ce2bbbbedce89c37d501e1863f49acc426d0dd65b290aae1d",
+    "index.ts": "5e445d83f4a34c30e9bdfbfd928a13ccfdd43ab89642aab7eb4c2826572a430a",
 
     "journal-records.ts": "025e8d7cbd49e52ebc86774612437350b31e78c8868bc035c9138cfa9d1dd9c7",
 
@@ -56,7 +56,7 @@
 
     "turn-fibers.ts": "a8906b511473b98c08f2e440bb5a6942ea7706897c13270dd591fafe7d95706c",
 
-    "usage-admission.ts": "2dcbc1789b356adbcf20b4eb776127fa92db34e191802bb12b60f5a80e94d623",
+    "usage-admission.ts": "d16ffa61a154e46ac39149c00e0dd77c66af0a485b9b55256f6bc0fc59e77fed",
 
     "usage-forwarding.ts": "b598322906818ebb8f491e3c57e5037ec115fa02c65d079cd15be14c6bdc314e",
 
@@ -64,6 +64,8 @@
 
     "usage.ts": "2c0508b009eac1f8ee73988f60a8807b6317a6f9db3340ee85754cb08b3071df",
 
-    "validation.ts": "299d1f6b624a3122734ef24d355100990ef0accb3bd39a685ad9581a352e59a1"
+    "validation.ts": "299d1f6b624a3122734ef24d355100990ef0accb3bd39a685ad9581a352e59a1",
+
+    "world-modes.ts": "e5d08855d7fc6d05c7d3bbb8489a5737ae11d2233a869802aed14406aa9d78e5"
   }
 }

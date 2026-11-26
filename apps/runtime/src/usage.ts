@@ -13,6 +13,8 @@ import type {
   UsageQueryRequest,
   UsageWebhookRegistration,
   UsageWebhookRequest,
+  WorldModeRequest,
+  WorldModeState,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
 import {
@@ -48,6 +50,7 @@ export const USAGE_ROUTES = [
   "/v1/runtime/usage/webhook",
   "/v1/runtime/usage/budget",
   "/v1/runtime/usage/admission-hook",
+  "/v1/runtime/world-mode",
 ] as const;
 
 /** Setting a budget restricts spend and sends nothing out, so it needs the operator's grant. */
@@ -127,6 +130,24 @@ export class PostgreSqlUsageInspector {
     return this.refusedAsDenied(input, authorization, target, async () => ({
       budgets: await this.admission.setBudget(authorization, input.scope, input.budget),
     }));
+  }
+
+  /**
+   * Sets the space's mode (`world-mode` audit, the entry the mode). Like a budget it restricts the
+   * world and sends nothing outside, so it needs the operator's grant beside the reader's.
+   */
+  async setMode(
+    input: WorldModeRequest,
+    context: TrustedExecutionContext,
+  ): Promise<WorldModeState> {
+    const target: AuditTarget = { subject: "world-mode", entryId: input.mode };
+    const authorization = await this.admitted(input, context, [INSPECT_GRANT, OPERATE_GRANT]);
+    return this.refusedAsDenied(input, authorization, target, () =>
+      this.admission.setMode(authorization, input.scope, {
+        mode: input.mode,
+        reason: input.reason,
+      }),
+    );
   }
 
   /**
@@ -232,7 +253,7 @@ export class PostgreSqlUsageInspector {
 type AuditTarget =
   | { readonly subject: "usage-events" }
   | {
-      readonly subject: "usage-webhook" | "usage-budget" | "usage-admission-hook";
+      readonly subject: "usage-webhook" | "usage-budget" | "usage-admission-hook" | "world-mode";
       readonly entryId: string;
     };
 
@@ -245,7 +266,5 @@ function access(
   target: AuditTarget = READ,
 ): InspectorAccess {
   const { worldId, timelineId, spaceId } = input.scope;
-  // The audit's subject union (postgres-inspector-audit.ts) lacks the two admission subjects the
-  // database already accepts (0084).
   return { ...target, worldId, timelineId, spaceId, decision, reasonCode };
 }

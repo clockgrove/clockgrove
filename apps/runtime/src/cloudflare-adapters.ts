@@ -1540,8 +1540,12 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
           false,
         )
         .catch((error: unknown) => {
-          // A muted actor or conversation starts no turn: the wake settles with that refusal.
-          if (error instanceof ConversationRefusedError && error.code === "conversation_muted")
+          // A muted actor or conversation, or a read-only or paused world, starts no turn: the
+          // wake settles with that refusal.
+          if (
+            error instanceof ConversationRefusedError &&
+            (error.code === "conversation_muted" || error.code === "world_mode_refused")
+          )
             return { refused: error.code, receipt: undefined };
           throw error;
         });

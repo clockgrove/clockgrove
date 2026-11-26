@@ -382,7 +382,9 @@ export type ConversationRefusalCode =
   | "turn_not_found"
   | "turn_cancelled"
   /** An operator muted the actor or this conversation: no turn starts (issue 374, G8). */
-  | "conversation_muted";
+  | "conversation_muted"
+  /** The world's mode is `read_only` or `paused`: no turn starts (issue 329, 0085). */
+  | "world_mode_refused";
 
 /** A refused conversation call; nothing was changed. */
 export class ConversationRefusedError extends Error {

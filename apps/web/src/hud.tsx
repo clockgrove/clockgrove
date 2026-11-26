@@ -2,6 +2,7 @@ import type {
   LivingScene,
   WorldClock,
   WorldFeedCategory,
+  WorldModeState,
   WorldStatus,
 } from "@clockgrove/contracts";
 import { flashbackOpener } from "./flashback.js";
@@ -29,6 +30,19 @@ export function weatherText(scene: LivingScene): string {
   return rain === 0 ? "Dry" : `Rain ${rain / 100}%`;
 }
 
+const MODE_LABELS: Readonly<Record<Exclude<WorldModeState["mode"], "active">, string>> = {
+  restricted: "Restricted: characters make no model or tool calls",
+  read_only: "Read-only: the world can be watched, not acted in",
+  paused: "Paused: no actions and no model or tool calls",
+};
+
+/** The world's mode, set by its developer, and the reason they gave, its `_` read as spaces. */
+export function worldModeText(state: WorldModeState): string | undefined {
+  if (state.mode === "active") return undefined;
+  const label = MODE_LABELS[state.mode];
+  return state.reason === null ? label : `${label} (${state.reason.replaceAll("_", " ")})`;
+}
+
 /** The HUD's centered world clock and weather, from canonical state only. */
 export function WorldClockHud({
   status,
@@ -40,6 +54,8 @@ export function WorldClockHud({
   const clock = typeof status === "object" ? status.clock : undefined;
   // A clock read for an earlier revision than the scene is shown as updating, never as current.
   const behind = typeof status === "object" && BigInt(status.revision) < BigInt(scene.revision);
+  const modeState = typeof status === "object" ? status.mode : undefined;
+  const mode = modeState === undefined ? undefined : worldModeText(modeState);
   return (
     <section className="rw-clock" aria-label="World clock" aria-busy={behind}>
       <span className="rw-clock-time">
@@ -50,6 +66,11 @@ export function WorldClockHud({
         {clock ? (clock.runState === "running" ? "Running" : "Paused") : ""}
       </span>
       <span className="rw-clock-speed">{clock ? `Speed ×${clock.speed}` : ""}</span>
+      {mode !== undefined && (
+        <span className="rw-world-mode" role="status" data-world-mode={modeState?.mode}>
+          {mode}
+        </span>
+      )}
       <span className="rw-clock-weather" data-rain={scene.weather.rainIntensity > 0}>
         {weatherText(scene)}
       </span>

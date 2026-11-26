@@ -49,6 +49,7 @@ export * from "./postgres-usage-webhooks.js";
 export * from "./postgres-wake-triage.js";
 export * from "./postgres-world-command.js";
 export * from "./postgres-world-mcp-admission.js";
+export * from "./postgres-world-modes.js";
 export * from "./postgres-world-owner.js";
 export * from "./postgres-world-provisioning.js";
 export * from "./r2-bucket.js";

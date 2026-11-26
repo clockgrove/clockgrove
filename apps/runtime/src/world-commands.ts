@@ -51,6 +51,7 @@ import {
   decodeBrowserScope,
   decodeCommandEnvelope,
   decodeOpaqueId,
+  type WorldModeState,
   type WorldPersonaId,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
@@ -65,6 +66,7 @@ import {
   PostgreSqlJournal,
   PostgreSqlWorldCommandJournal,
   PostgreSqlWorldOwnerReader,
+  worldMode,
 } from "@clockgrove/persistence";
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import { OwnerMailboxError, type OwnerMailboxRefusal } from "./mailbox.js";
@@ -161,6 +163,8 @@ export interface PreparedBuiltCommand {
   readonly input?: WorldCommandInput;
   readonly stored?: WorldCommandResult;
   readonly storedPersonaId?: WorldPersonaId;
+  /** The space's mode, read for a command not yet decided (0085). */
+  readonly mode?: WorldModeState;
 }
 
 /** Reads the server-chosen fields back out of a receipt's canonical command bytes. */
@@ -288,13 +292,27 @@ export class PostgreSqlCommandOwner {
           ...(personaId === undefined ? {} : { storedPersonaId: personaId }),
         };
       }
-      return { tenantMember: true, ready: await this.reader.isReady(authorization, scope), input };
+      return {
+        tenantMember: true,
+        ready: await this.reader.isReady(authorization, scope),
+        input,
+        mode: await this.mode(scope),
+      };
     }
     const route = await this.reader.route(authorization, scope);
     const input = build({
       epochs: { routingEpoch: route.routingEpoch, authorityEpoch: route.routingEpoch },
     });
-    return { tenantMember: true, ready: await this.reader.isReady(authorization, scope), input };
+    return {
+      tenantMember: true,
+      ready: await this.reader.isReady(authorization, scope),
+      input,
+      mode: await this.mode(scope),
+    };
+  }
+  /** The space's mode (0085): a `read_only` or `paused` space takes no command but the clock's. */
+  mode(scope: RuntimeScope): Promise<WorldModeState> {
+    return worldMode(this.client, scope);
   }
   async deny(
     input: WorldCommandInput,

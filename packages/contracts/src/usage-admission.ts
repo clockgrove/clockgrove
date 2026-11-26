@@ -97,6 +97,9 @@ export const USAGE_REFUSAL_CAUSES = [
   "usage_budget_unknown",
   "usage_admission_refused",
   "usage_admission_unavailable",
+  // The space's mode refuses every call (`docs/protocols/usage.md`, "World modes").
+  "world_mode_restricted",
+  "world_mode_paused",
 ] as const;
 export type UsageRefusalCause = (typeof USAGE_REFUSAL_CAUSES)[number];
 

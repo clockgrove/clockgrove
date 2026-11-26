@@ -637,6 +637,21 @@ export function composeUsageBudgets(
   };
 }
 
+/** Sets world modes (0085); they send nothing outside, so they need no secret. */
+export function composeWorldModes(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+): RuntimeOwnerBindings["worldModes"] {
+  const inspector = <T>(operation: (inspector: PostgreSqlUsageInspector) => Promise<T>) =>
+    withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+      operation(new PostgreSqlUsageInspector(client)),
+    );
+  return {
+    inspect: (input, context) => inspector((usage) => usage.setMode(input, context)),
+    deny: (input, principalId, denial) =>
+      inspector((usage) => usage.deny(input, principalId, denial)),
+  };
+}
+
 /** Registers usage admission hooks (0084); absent without `USAGE_WEBHOOK_SECRET`. */
 export function composeUsageAdmissionHooks(
   env: Pick<RuntimeEnvironment, "HYPERDRIVE" | "USAGE_WEBHOOK_SECRET">,
@@ -1590,6 +1605,7 @@ export default {
     const usageWebhooks = composeUsageWebhooks(env);
     const usageBudgets = composeUsageBudgets(env);
     const usageAdmissionHooks = composeUsageAdmissionHooks(env);
+    const worldModes = composeWorldModes(env);
     const cognition = composeCognition(env);
     const inspector = <T>(operation: (inspector: PostgreSqlCausalInspector) => Promise<T>) =>
       withHyperdrivePostgreSqlClient(connection, (client) =>
@@ -1656,6 +1672,7 @@ export default {
         ...(usageWebhooks === undefined ? {} : { usageWebhooks }),
         ...(usageBudgets === undefined ? {} : { usageBudgets }),
         ...(usageAdmissionHooks === undefined ? {} : { usageAdmissionHooks }),
+        ...(worldModes === undefined ? {} : { worldModes }),
         ...(cognition === undefined ? {} : { cognition }),
         changeViewedSpace: (request, authorize) =>
           withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
@@ -1769,6 +1786,7 @@ export default {
                   },
                   input.scope,
                 ),
+                mode: await owner.mode(input.scope),
               };
             }),
           deny: (input, principalId, denial) =>

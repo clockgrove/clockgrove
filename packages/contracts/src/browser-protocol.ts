@@ -618,6 +618,30 @@ export interface WorldFeedItem extends FeedSummary {
   readonly category: WorldFeedCategory;
   readonly objectId: ObjectId | null;
 }
+/**
+ * A space's mode, set by the developer's server (`docs/protocols/usage.md`, "World modes"):
+ * `restricted` makes no model or tool call, `read_only` takes no world command and starts no turn,
+ * `paused` does neither.
+ */
+export type WorldMode = "active" | "restricted" | "read_only" | "paused";
+export const WORLD_MODES: readonly WorldMode[] = ["active", "restricted", "read_only", "paused"];
+/** A mode and its reason, a code every observer is shown; `active` has none. */
+export interface WorldModeState {
+  readonly mode: WorldMode;
+  readonly reason: string | null;
+}
+/** Decodes a mode and its reason: 1 to 64 of `a-z`, `0-9` and `_`, or `null`; none when active. */
+export function decodeWorldModeState(value: unknown, path = "worldMode"): WorldModeState {
+  const v = record(value, path);
+  exactKeys(v, ["mode", "reason"], [], path);
+  const mode = literal(v.mode, WORLD_MODES, `${path}.mode`);
+  const reason = v.reason === null ? null : string(v.reason, `${path}.reason`);
+  if (reason !== null && !/^[a-z0-9_]{1,64}$/u.test(reason))
+    throw new ContractDecodeError(`${path}.reason`, "expected 1 to 64 of a-z, 0-9 and _");
+  if (mode === "active" && reason !== null)
+    throw new ContractDecodeError(`${path}.reason`, "an active world has no reason");
+  return Object.freeze({ mode, reason });
+}
 /** The observer clock-and-feed read's answer to an `ObservationRequest`; `feed` is newest first. */
 export interface WorldStatus extends BrowserScope {
   readonly version: 1;
@@ -625,6 +649,8 @@ export interface WorldStatus extends BrowserScope {
   readonly revision: string;
   readonly clock: WorldClock;
   readonly feed: readonly WorldFeedItem[];
+  /** The space's mode, present only when it is not `active`. */
+  readonly mode?: WorldModeState;
 }
 function decodeWorldClock(value: unknown): WorldClock {
   const path = "status.clock";
@@ -670,7 +696,7 @@ export function decodeWorldStatus(value: unknown): WorldStatus {
       "clock",
       "feed",
     ],
-    [],
+    ["mode"],
     "status",
   );
   literalVersion(v.version, 1, "status.version");
@@ -696,6 +722,7 @@ export function decodeWorldStatus(value: unknown): WorldStatus {
           objectId === null ? null : decodeOpaqueId(objectId, "ObjectId", `${path}.objectId`),
       };
     }),
+    ...(v.mode === undefined ? {} : { mode: decodeWorldModeState(v.mode, "status.mode") }),
   };
 }
 /** The JSON form of a `WorldStatus`: each feed item's simulation time as a decimal string. */
