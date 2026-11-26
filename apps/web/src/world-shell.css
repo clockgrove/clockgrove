@@ -443,10 +443,13 @@ body {
     padding: 0 var(--cg-v1-space-1);
   }
 
-  /* The time sits at the foot of the first row, above the space the second row keeps for the button. */
+  /*
+   * The time sits at the foot of the first row, above the space the second row keeps for the button.
+   * The rows stand one space apart, so the button's border never runs through the time's descenders.
+   */
   .rw-feed li:has(> .rw-feed-flashback) > .rw-feed-item {
     grid-template-rows: 1fr auto;
-    row-gap: 0;
+    row-gap: var(--cg-v1-space-1);
   }
 
   .rw-feed li:has(> .rw-feed-flashback) > .rw-feed-item > .rw-feed-icon {
