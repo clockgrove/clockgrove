@@ -255,7 +255,9 @@ export async function runNativeWorldOwnerProcess(
               {
                 cwd: REPO_ROOT,
                 timeoutMs,
-                inherit: inheritOutput,
+                // Issue 457: echoed live rather than inherited, so the child's stderr (its failed
+                // assertion) is in the message below when it exits non-zero.
+                echo: inheritOutput,
                 env: {
                   ...inherited,
                   [fixtureVariable]: JSON.stringify({
@@ -271,9 +273,12 @@ export async function runNativeWorldOwnerProcess(
                 },
               },
             );
-            process.stdout.write(result.stdout + result.stderr);
-            expect(result.error, result.stderr).toBeUndefined();
-            expect(result.status, result.stderr).toBe(0);
+            if (!inheritOutput) process.stdout.write(result.stdout + result.stderr);
+            // An echoed child's output is already in the log in full; the message keeps its end,
+            // where Vitest reports the failed test.
+            const failure = inheritOutput ? result.stderr.slice(-16_384) : result.stderr;
+            expect(result.error, failure).toBeUndefined();
+            expect(result.status, failure).toBe(0);
           }, connections);
           expect(
             await truthOf(fixture)(

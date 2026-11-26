@@ -34,13 +34,16 @@ export function withoutSubprocessCancellation(operation) {
 
 // Return observations only after pipes and the directly owned child have closed. On the deadline,
 // `stopSignal` goes to the child's process group, then SIGKILL after `killGraceMs`; `timedOut`
-// says the deadline, not an abort or the output cap, stopped it.
+// says the deadline, not an abort or the output cap, stopped it. `echo` writes each chunk of the
+// child's output to this process's own stream as it arrives and still returns it, so a long child
+// is followed live and its stderr can name its failure (`inherit` returns no output).
 export async function ownedSubprocess(executable, args, options = {}) {
   const {
     cwd,
     env = process.env,
     input,
     inherit = false,
+    echo = false,
     timeoutMs = 30_000,
     killGraceMs = 1_000,
     maxBuffer = 128 * 1024 * 1024,
@@ -101,9 +104,11 @@ export async function ownedSubprocess(executable, args, options = {}) {
     };
     collect(child.stdout, (chunk) => {
       stdout += chunk;
+      if (echo) process.stdout.write(chunk);
     });
     collect(child.stderr, (chunk) => {
       stderr += chunk;
+      if (echo) process.stderr.write(chunk);
     });
     child.on("error", (cause) => {
       error ??= cause;

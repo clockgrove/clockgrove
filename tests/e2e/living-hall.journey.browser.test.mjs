@@ -2234,9 +2234,19 @@ const observeHall = async (backend) => {
           )
           .waitFor();
         await page.unroute("**/v1/runtime/flashback");
+        // Issue 457: CI once timed out below waiting for "Flashback loaded." after this step, with
+        // nothing to say whether the runtime answered. The step's own read is awaited first, so a
+        // failure names the runtime's answer, or that none came, apart from the panel's.
+        const backRead = page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/v1/runtime/flashback") &&
+            response.request().postDataJSON()?.commandId === "browser-why-original",
+        );
         await flashbackPanel
           .getByRole("button", { name: "Back to command browser-why-original", exact: true })
           .click();
+        const backAnswer = await backRead;
+        expect(backAnswer.status(), await backAnswer.text()).toBe(200);
         await flashbackPanel
           .getByRole("heading", { name: "Flashback: command browser-why-original", exact: true })
           .waitFor();
