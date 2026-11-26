@@ -20,6 +20,7 @@ export * from "./material.js";
 export * from "./model-asset.js";
 export * from "./privacy.js";
 export * from "./protocol.js";
+export * from "./purchases.js";
 export * from "./run-walk.js";
 export * from "./runs.js";
 export * from "./scene-arrival.js";

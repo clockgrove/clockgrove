@@ -72,6 +72,12 @@ import { decodeResource } from "@clockgrove/world-pack-sdk";
 import { OwnerMailboxError, type OwnerMailboxRefusal } from "./mailbox.js";
 import { StoredRejectionError } from "./owners.js";
 import {
+  isPurchaseCommandId,
+  mayHoldPurchaseGrant,
+  PURCHASE_COMMAND_TYPES,
+  PURCHASE_GRANT,
+} from "./purchases.js";
+import {
   RuntimeEpochConflictError,
   type RuntimeEpochs,
   RuntimeRouteNotFoundError,
@@ -137,6 +143,9 @@ export function decodeWorldCommandInput(value: unknown): WorldCommandInput {
     throw new CanonicalNodeError("command node is not canonical");
   if (isTrustedId(command.commandId))
     throw new ContractDecodeError("command.commandId", "reserved for trusted commands");
+  // Only the purchase route builds a purchase's command (`POST /v1/runtime/purchases`).
+  if (PURCHASE_COMMAND_TYPES.includes(command.type) || isPurchaseCommandId(command.commandId))
+    throw new ContractDecodeError("command", "reserved for purchases");
   return {
     scope,
     epochs: {
@@ -157,6 +166,32 @@ export interface BuiltCommandFields {
   readonly context?: { readonly correlationId: string; readonly requestId: string };
 }
 
+/** What `prepareBuilt` hands its builder: the server-chosen fields and the expected revision. */
+export interface PreparedCommandFields extends BuiltCommandFields {
+  /**
+   * The revision the first attempt expected, or, when the caller asked for it (`revision`), the
+   * space's now for a first attempt.
+   */
+  readonly expectedRevision?: bigint;
+  /**
+   * The principal the first attempt was sealed under, given only when the caller asked to match
+   * the prior attempt whoever sent it (`priorPrincipal`): the builder seals the command as it.
+   */
+  readonly principalId?: import("@clockgrove/contracts").PrincipalId;
+}
+
+/** What a `prepareBuilt` caller asks for beyond the server-chosen fields. */
+export interface PrepareBuiltOptions {
+  /** Read the space's revision for a first attempt (one more transaction; purchases only). */
+  readonly revision?: true;
+  /**
+   * Match a prior attempt by its content, not by the principal that sent it: a prior attempt is
+   * rebuilt and compared under its own sealing principal, so a second holder's same request
+   * replays it rather than reusing its command ID (purchases).
+   */
+  readonly priorPrincipal?: true;
+}
+
 export interface PreparedBuiltCommand {
   readonly tenantMember: boolean;
   readonly ready: boolean;
@@ -168,7 +203,7 @@ export interface PreparedBuiltCommand {
 }
 
 /** Reads the server-chosen fields back out of a receipt's canonical command bytes. */
-function builtFieldsOf(bytes: Uint8Array, commandId: CommandId): BuiltCommandFields {
+function builtFieldsOf(bytes: Uint8Array, commandId: CommandId): PreparedCommandFields {
   const field = (node: unknown, key: string): unknown => {
     if (!Array.isArray(node) || node[0] !== "record" || !Array.isArray(node[1]))
       throw new CommandIdempotencyInvariantError(commandId);
@@ -183,7 +218,13 @@ function builtFieldsOf(bytes: Uint8Array, commandId: CommandId): BuiltCommandFie
   const epochs = field(root, "epochs");
   const command = field(root, "command");
   const context = field(command, "context");
+  const revision = field(field(command, "expected"), "partitionRevision");
+  const principal = field(root, "principalId");
   return {
+    ...(revision === undefined ? {} : { expectedRevision: BigInt(leaf(revision, "bigint")) }),
+    ...(principal === undefined
+      ? {}
+      : { principalId: leaf(principal, "string") as import("@clockgrove/contracts").PrincipalId }),
     epochs: {
       routingEpoch: BigInt(leaf(field(epochs, "routingEpoch"), "bigint")),
       authorityEpoch: BigInt(leaf(field(epochs, "authorityEpoch"), "bigint")),
@@ -263,7 +304,8 @@ export class PostgreSqlCommandOwner {
     scope: RuntimeScope,
     principalId: import("@clockgrove/contracts").PrincipalId,
     commandId: CommandId,
-    build: (fields: BuiltCommandFields) => WorldCommandInput,
+    build: (fields: PreparedCommandFields) => WorldCommandInput,
+    options: PrepareBuiltOptions = {},
   ): Promise<PreparedBuiltCommand> {
     const authorization = {
       tenantId: scope.tenantId,
@@ -277,11 +319,15 @@ export class PostgreSqlCommandOwner {
       commandId,
     );
     if (prior !== undefined) {
-      const input = build(builtFieldsOf(prior, commandId));
-      const bytes = worldCommandBytes(input, principalId);
+      const { principalId: sealedBy, ...fields } = builtFieldsOf(prior, commandId);
+      const sealer = options.priorPrincipal === true ? (sealedBy ?? principalId) : principalId;
+      const input = build(
+        options.priorPrincipal === true ? { ...fields, principalId: sealer } : fields,
+      );
+      const bytes = worldCommandBytes(input, sealer);
       if (bytes.length !== prior.length || bytes.some((octet, index) => octet !== prior[index]))
         throw new CommandIdempotencyInvariantError(commandId);
-      const stored = await this.storedWithAttribution(input, principalId);
+      const stored = await this.storedWithAttribution(input, sealer);
       if (stored !== undefined) {
         const { personaId, result } = stored;
         return {
@@ -302,6 +348,9 @@ export class PostgreSqlCommandOwner {
     const route = await this.reader.route(authorization, scope);
     const input = build({
       epochs: { routingEpoch: route.routingEpoch, authorityEpoch: route.routingEpoch },
+      ...(options.revision === true
+        ? { expectedRevision: await this.reader.revision(authorization, scope) }
+        : {}),
     });
     return {
       tenantMember: true,
@@ -911,10 +960,12 @@ export class PostgreSqlCommandOwner {
 /**
  * Clock controls need their own grant, and so does an owner's surface repair (issue 267): it zeroes
  * a zone and clears its marks, so it is the world owner's right, `runtime:world-repair`.
- * `runtime:world-command` alone never allows either.
+ * `runtime:world-command` alone never allows either. A purchase needs `runtime:world-purchase`
+ * (a world's owner's by default, delegable; never an actor's or a system identity's).
  */
 export function worldCommandGrant(input: WorldCommandInput): string {
   if (isClockCommand(input.command.type)) return "runtime:world-clock";
+  if (PURCHASE_COMMAND_TYPES.includes(input.command.type)) return PURCHASE_GRANT;
   return input.command.type === "surface.repair" ? "runtime:world-repair" : "runtime:world-command";
 }
 
@@ -929,7 +980,8 @@ export function assertWorldCommandContext(
     context.timelineId !== scope.timelineId ||
     context.spaceId !== scope.spaceId ||
     context.worldMembershipId === undefined ||
-    !context.grants.includes(decodeOpaqueId(grant, "GrantRef"))
+    !context.grants.includes(decodeOpaqueId(grant, "GrantRef")) ||
+    (grant === PURCHASE_GRANT && !mayHoldPurchaseGrant(context))
   )
     throw new AuthorizationRefusedError("world command scope or authority refused");
 }

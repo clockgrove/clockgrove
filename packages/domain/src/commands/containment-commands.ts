@@ -16,6 +16,17 @@ const objectId = z
   .refine((value) => value.trim() === value);
 const positive = materialQuantitySchema.refine((value) => value > 0);
 const version = z.literal(1);
+/** A purchase the developer's checkout completed (issue 329); a refund repeats its fields. */
+const purchasePayload = z
+  .strictObject({
+    schemaVersion: version,
+    purchaseId: z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/u),
+    principalId: objectId,
+    objectId,
+    kind: z.enum(["food", "water"]),
+    quantity: positive.refine((value) => value <= 1_000_000),
+  })
+  .readonly();
 /** Fixtures cannot introduce needs, schedules, arbitrary scope or location mutations. */
 export const fixtureObjectSchema = z
   .strictObject({
@@ -96,6 +107,8 @@ export const CONTAINMENT_PAYLOAD_SCHEMAS = Object.freeze({
       quantity: positive,
     })
     .readonly(),
+  "purchase.grant": purchasePayload,
+  "purchase.refund": purchasePayload,
   "resource.transfer": z
     .strictObject({
       schemaVersion: version,

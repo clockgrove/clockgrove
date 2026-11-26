@@ -46,6 +46,7 @@ export * from "./events/movement-events.js";
 export * from "./events/portal-events.js";
 export * from "./events/world-events.js";
 export * from "./lifecycle/index.js";
+export * from "./purchase.js";
 export * from "./random.js";
 export * from "./rules/index.js";
 export * from "./spatial/index.js";

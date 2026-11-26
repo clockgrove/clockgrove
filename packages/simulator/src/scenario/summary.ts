@@ -98,6 +98,8 @@ const RESOURCE_TYPES = new Set([
   "resource.weather-integrated",
   "growth.stage-changed",
   "resource.boundary-exchanged",
+  "resource.purchase-granted",
+  "resource.purchase-refunded",
 ]);
 
 const big = (value: unknown): bigint => BigInt(value as number | bigint | string);
@@ -137,6 +139,7 @@ export class ResourceLedger {
         break;
       case "resource.consumed":
       case "resource.spoiled":
+      case "resource.purchase-refunded":
         delta = -big(payload.quantity);
         break;
       case "resource.weather-integrated":

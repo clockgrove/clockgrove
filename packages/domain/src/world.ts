@@ -61,6 +61,7 @@ import {
   validateLifecycleState,
 } from "./lifecycle/lifecycle.js";
 import { isSealedLifecycleLineage, sealLifecycleLineage } from "./lifecycle/sealed-lineage.js";
+import type { PurchaseEventData } from "./purchase.js";
 import type { RandomDrawMetadata } from "./random.js";
 import { type AnchorGraph, parseAnchorGraph } from "./spatial/anchors.js";
 import { validateSemanticHierarchy } from "./spatial/hierarchy.js";
@@ -281,6 +282,7 @@ export type WorldEvent = WorldEventScope &
             }>
           | Readonly<{ type: "time.advanced"; payload: Readonly<Record<string, never>> }>
           | BoundaryExchangeEventData
+          | PurchaseEventData
           | ProcessCommandEventData
           | SurfaceEventData
           | ContainmentEventData
@@ -645,6 +647,43 @@ export function reduceWorldEvent(state: WorldState, event: WorldEvent): WorldSta
         boundaryExchanges: state.boundaryExchanges!.map((value) =>
           value === entry ? { ...value, [key]: value[key] - payload.quantity } : value,
         ),
+        entities,
+        ...withEcology(
+          settleArrivals(state.ecology, state.entities, entities, event.simulationTime),
+        ),
+      });
+    }
+    case "resource.purchase-granted":
+    case "resource.purchase-refunded": {
+      const payload = event.payload;
+      const granted = event.type === "resource.purchase-granted";
+      if (
+        !Number.isSafeInteger(payload.quantity) ||
+        payload.quantity < (granted ? 1 : 0) ||
+        payload.purchaseId.length === 0 ||
+        payload.principalId.length === 0
+      )
+        throw new DomainValidationError("event.quantity", "invalid purchase");
+      if (payload.quantity === 0) return createWorldState(advanced);
+      const holder = requireEntity(state, payload.objectId);
+      if (
+        holder.resource?.kind !== payload.kind ||
+        (!granted && holder.resource.quantity < payload.quantity)
+      )
+        throw new DomainValidationError("event.kind", "incompatible purchase holder");
+      const entities = state.entities.map((entity) =>
+        entity.objectId === payload.objectId
+          ? {
+              ...entity,
+              resource: {
+                ...holder.resource!,
+                quantity: holder.resource!.quantity + (granted ? 1 : -1) * payload.quantity,
+              },
+            }
+          : entity,
+      );
+      return createWorldState({
+        ...advanced,
         entities,
         ...withEcology(
           settleArrivals(state.ecology, state.entities, entities, event.simulationTime),
