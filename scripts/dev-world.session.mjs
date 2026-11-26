@@ -30,7 +30,7 @@ const CONFIG = "scripts/dev-world.vitest.config.ts";
 const SESSION_MS = Number(process.env.CLOCKGROVE_DEV_WORLD_HOURS ?? 4) * 60 * 60_000;
 /**
  * The playground signs in as the world's owner (issue 327): the existing observation, inspection,
- * command, clock and operator grants, and a privacy ceiling of the public-scene, operator-evidence and
+ * command, clock, operator, repair and purchase grants, and a privacy ceiling of the public-scene, operator-evidence and
  * conversation categories on its membership, never private cognition. `pnpm dev:world` keeps its observer.
  * With command and operate, `conversation` admits what the existing rules give any such member: Talk,
  * actor activations, operator effect approval and retry, delivery consent, and conversation reassembly
@@ -46,6 +46,8 @@ const GRANTS = OWNER
       "runtime:world-clock",
       "runtime:world-operate",
       "runtime:world-repair",
+      // The owner's default purchase grant (issue 329), which also defines offers.
+      "runtime:world-purchase",
     ]
   : ["runtime:world-observe"];
 const OWNER_CEILING =
