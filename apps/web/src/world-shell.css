@@ -435,18 +435,27 @@ body {
     grid-area: 1 / 1;
   }
 
-  /* The card's own border and padding (the shell's button hairline and spacing) inset the button. */
+  /*
+   * The card's own border and padding (the shell's button hairline and spacing) inset the button.
+   * The shell's `font: inherit` on every button outranks the plain `.rw-feed-flashback` size, so
+   * the size is restated here: the button must be exactly the box its placeholder below reserves,
+   * or it stands taller than that row and its top border reaches up into the time.
+   */
   .rw-feed li > .rw-feed-flashback {
     align-self: end;
     justify-self: end;
     margin: calc(var(--cg-v1-space-1) + 1px) calc(var(--cg-v1-space-2) + 1px);
     padding: 0 var(--cg-v1-space-1);
+    font-size: 0.8rem;
   }
 
-  /* The time sits at the foot of the first row, above the space the second row keeps for the button. */
+  /*
+   * The time sits at the foot of the first row, above the space the second row keeps for the button.
+   * The rows stand one space apart, so the button's border never runs through the time's descenders.
+   */
   .rw-feed li:has(> .rw-feed-flashback) > .rw-feed-item {
     grid-template-rows: 1fr auto;
-    row-gap: 0;
+    row-gap: var(--cg-v1-space-1);
   }
 
   .rw-feed li:has(> .rw-feed-flashback) > .rw-feed-item > .rw-feed-icon {
