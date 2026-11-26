@@ -61,7 +61,12 @@ export function purchaseCommand(
   request: PurchaseRequest,
   action: PurchaseRequest["action"],
   principalId: PrincipalId,
-  { epochs, context: ids, issuedAt, expectedRevision }: Required<PreparedCommandFields>,
+  {
+    epochs,
+    context: ids,
+    issuedAt,
+    expectedRevision,
+  }: Required<Omit<PreparedCommandFields, "principalId">>,
 ): WorldCommandInput {
   const { tenantId, worldId, timelineId } = request.scope;
   const commandId = decodeOpaqueId(

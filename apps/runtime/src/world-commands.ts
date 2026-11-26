@@ -168,8 +168,28 @@ export interface BuiltCommandFields {
 
 /** What `prepareBuilt` hands its builder: the server-chosen fields and the expected revision. */
 export interface PreparedCommandFields extends BuiltCommandFields {
-  /** The revision the first attempt expected, or the space's now for a first attempt. */
+  /**
+   * The revision the first attempt expected, or, when the caller asked for it (`revision`), the
+   * space's now for a first attempt.
+   */
   readonly expectedRevision?: bigint;
+  /**
+   * The principal the first attempt was sealed under, given only when the caller asked to match
+   * the prior attempt whoever sent it (`priorPrincipal`): the builder seals the command as it.
+   */
+  readonly principalId?: import("@clockgrove/contracts").PrincipalId;
+}
+
+/** What a `prepareBuilt` caller asks for beyond the server-chosen fields. */
+export interface PrepareBuiltOptions {
+  /** Read the space's revision for a first attempt (one more transaction; purchases only). */
+  readonly revision?: true;
+  /**
+   * Match a prior attempt by its content, not by the principal that sent it: a prior attempt is
+   * rebuilt and compared under its own sealing principal, so a second holder's same request
+   * replays it rather than reusing its command ID (purchases).
+   */
+  readonly priorPrincipal?: true;
 }
 
 export interface PreparedBuiltCommand {
@@ -199,8 +219,12 @@ function builtFieldsOf(bytes: Uint8Array, commandId: CommandId): PreparedCommand
   const command = field(root, "command");
   const context = field(command, "context");
   const revision = field(field(command, "expected"), "partitionRevision");
+  const principal = field(root, "principalId");
   return {
     ...(revision === undefined ? {} : { expectedRevision: BigInt(leaf(revision, "bigint")) }),
+    ...(principal === undefined
+      ? {}
+      : { principalId: leaf(principal, "string") as import("@clockgrove/contracts").PrincipalId }),
     epochs: {
       routingEpoch: BigInt(leaf(field(epochs, "routingEpoch"), "bigint")),
       authorityEpoch: BigInt(leaf(field(epochs, "authorityEpoch"), "bigint")),
@@ -281,6 +305,7 @@ export class PostgreSqlCommandOwner {
     principalId: import("@clockgrove/contracts").PrincipalId,
     commandId: CommandId,
     build: (fields: PreparedCommandFields) => WorldCommandInput,
+    options: PrepareBuiltOptions = {},
   ): Promise<PreparedBuiltCommand> {
     const authorization = {
       tenantId: scope.tenantId,
@@ -294,11 +319,15 @@ export class PostgreSqlCommandOwner {
       commandId,
     );
     if (prior !== undefined) {
-      const input = build(builtFieldsOf(prior, commandId));
-      const bytes = worldCommandBytes(input, principalId);
+      const { principalId: sealedBy, ...fields } = builtFieldsOf(prior, commandId);
+      const sealer = options.priorPrincipal === true ? (sealedBy ?? principalId) : principalId;
+      const input = build(
+        options.priorPrincipal === true ? { ...fields, principalId: sealer } : fields,
+      );
+      const bytes = worldCommandBytes(input, sealer);
       if (bytes.length !== prior.length || bytes.some((octet, index) => octet !== prior[index]))
         throw new CommandIdempotencyInvariantError(commandId);
-      const stored = await this.storedWithAttribution(input, principalId);
+      const stored = await this.storedWithAttribution(input, sealer);
       if (stored !== undefined) {
         const { personaId, result } = stored;
         return {
@@ -319,7 +348,9 @@ export class PostgreSqlCommandOwner {
     const route = await this.reader.route(authorization, scope);
     const input = build({
       epochs: { routingEpoch: route.routingEpoch, authorityEpoch: route.routingEpoch },
-      expectedRevision: await this.reader.revision(authorization, scope),
+      ...(options.revision === true
+        ? { expectedRevision: await this.reader.revision(authorization, scope) }
+        : {}),
     });
     return {
       tenantMember: true,

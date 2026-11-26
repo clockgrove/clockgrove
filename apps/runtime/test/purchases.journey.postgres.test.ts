@@ -42,7 +42,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
   "a purchase the developer's server reports is granted once, journaled as an outside cause Why explains, and refunded as a recorded removal",
   async () => {
     await withNativeWorldOwner(async (owner) => {
-      const purchase = (action: "grant" | "refund", fields: object = {}) =>
+      const purchase = (
+        action: "grant" | "refund",
+        fields: object = {},
+        credential: string = DEVELOPER,
+      ) =>
         owner.request(
           "/v1/runtime/purchases",
           {
@@ -56,7 +60,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
             quantity: 2,
             ...fields,
           },
-          DEVELOPER,
+          credential,
         );
       const count = (where: string) =>
         owner.sql(`SELECT count(*)::text FROM clockgrove.command_receipts WHERE ${where}`);
@@ -68,6 +72,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
         body: { error: "authorization_refused" },
       });
       expect(await count("command_id LIKE 'purchase%'")).toBe("0");
+      // Its refund is refused for the same reason, before anything is said about the purchase.
+      expect(await purchase("refund")).toMatchObject({
+        status: 403,
+        body: { error: "authorization_refused" },
+      });
       // Nor can anyone reach a purchase through the ordinary command route.
       expect(
         await owner.submit({
@@ -99,6 +108,15 @@ it.skipIf(!isNativeWorldOwnerChild())(
         quantity: 2,
       });
       expect(decodePurchaseReceipt((await purchase("grant")).body)).toEqual(granted);
+      // A second holder of the grant (here the player's own principal, delegated it) sending the
+      // same purchase replays the same receipt: the purchase, not its sender, is the identity.
+      await owner.sql(
+        `UPDATE clockgrove.world_memberships
+            SET grants = grants || ARRAY['runtime:world-purchase']
+          WHERE principal_id = 'principal-runtime'`,
+      );
+      const PLAYER = "local-reader-session";
+      expect(decodePurchaseReceipt((await purchase("grant", {}, PLAYER)).body)).toEqual(granted);
       expect(await purchase("grant", { quantity: 3 })).toMatchObject({
         status: 409,
         body: { error: "command_id_reused" },
@@ -129,7 +147,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
       ]);
       expect(JSON.stringify(why.body)).not.toContain("principal-runtime");
 
-      // A paused world still records the developer's refund, once.
+      // A paused world still records the refund, once, though another holder than the grant's
+      // sends it.
       expect(
         (
           await owner.request(
@@ -139,7 +158,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
           )
         ).status,
       ).toBe(200);
-      const refunded = decodePurchaseReceipt((await purchase("refund")).body);
+      const refunded = decodePurchaseReceipt((await purchase("refund", {}, PLAYER)).body);
       expect(refunded).toMatchObject({
         commandId: "purchase-refund:cs_test_1",
         status: "committed",

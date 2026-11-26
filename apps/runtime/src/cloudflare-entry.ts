@@ -1795,9 +1795,9 @@ export default {
               (owner) => owner.deny(input, principalId, denial),
               analyticsEngineMetrics(env.METRICS),
             ),
-          prepareBuilt: (scope, principalId, commandId, build) =>
+          prepareBuilt: (scope, principalId, commandId, build, options) =>
             withCommandOwner(env.HYPERDRIVE?.connectionString ?? "", (owner) =>
-              owner.prepareBuilt(scope, principalId, commandId, build),
+              owner.prepareBuilt(scope, principalId, commandId, build, options),
             ),
           submit: async (input, context) => {
             const route = await runtimeRouteName("world", input.scope);

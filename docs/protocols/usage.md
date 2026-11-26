@@ -391,9 +391,13 @@ It answers `200` with the receipt
   purchase is for; it is recorded in the journal, not shown on the scene or in Why.
 - **Exactly once.** The server builds the world command, as it builds an Influence intent; its
   command ID is `purchase:<purchaseId>` and the kernel refuses any other pairing, so the journal's
-  command-ID identity grants a purchase once. The same request again answers the stored receipt;
-  a different request under the same purchase id is `409 command_id_reused`. A purchase id is 1 to
-  128 of `A-Z`, `a-z`, `0-9`, `.`, `_`, `:` or `-`, unique per timeline. A grant the world refuses
+  command-ID identity grants a purchase once. The same request again (the same scope and fields,
+  from any holder of the grant) answers the stored receipt; a different request under the same
+  purchase id is `409 command_id_reused`. A purchase id is 1 to 128 of `A-Z`, `a-z`, `0-9`, `.`,
+  `_`, `:` or `-`, unique per tenant, as command IDs are: once used in one world, timeline or space
+  of a tenant, the same id answers `409 command_id_reused` in every other, and its refund
+  `purchase_not_granted`. A developer selling in several worlds of one tenant uses ids unique
+  across them, as a checkout's session or order id is. A grant the world refuses
   (no such holder, another kind, a perishable holder already holding food) answers `409` with
   `"status": "rejected"` and its reason, and stays refused for that purchase id.
 - **Its cause.** The grant journals `resource.purchase-granted@1`
@@ -405,15 +409,18 @@ It answers `200` with the receipt
   `resource.purchase-refunded@1` under `purchase-refund:<purchaseId>`, once. It removes what is left
   of the grant in its holder, never more than was granted and never below zero (a consumed item is
   not taken back from elsewhere); the receipt's `quantity` and the event's are what it removed, 0
-  when nothing is left. A refund needs the purchase's committed grant with the same fields, else
-  `409 purchase_not_granted`. Why shows a removal as `"cause": "refund"`.
+  when nothing is left. A refund needs the purchase's committed grant with the same scope and fields (who sent
+  the grant or the refund is not one of them: an owner refunds what a delegate granted), else
+  `409 purchase_not_granted`, answered only to a caller holding `runtime:world-purchase`. Why shows a removal as `"cause": "refund"`.
 - **Authority.** A purchase needs `runtime:world-purchase`. A world's owner holds it by default
   and may delegate it, as `runtime:usage-webhook` and `runtime:mcp-install`: purchases are the
   developer's own commerce, and the world's owner is the developer. No other grant implies it
   (`runtime:world-command`, `runtime:world-operate` and `runtime:world-clock` never do), and an
   actor or system identity never holds it by ownership ([capabilities](capabilities.md)). A
-  refused caller gets `403` and no
-  receipt is written, so no one can take a purchase id before the developer's server.
+  refused caller gets `403`, before anything is said about the purchase, and no receipt is written,
+  so no one without the grant in some world of the tenant can take a purchase id before the
+  developer's server. Purchase ids are per tenant, so a holder in one of the tenant's worlds can
+  use an id first; the tenant's worlds are one developer's, who chooses its holders.
   `POST /v1/runtime/commands` refuses both command types and their command IDs (`400
   invalid_world_command`), and an actor's `world.command` cannot name them (the kernel's ID pairing).
 - **Modes.** No [world mode](#world-modes) refuses a purchase or a refund: they record the

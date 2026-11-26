@@ -111,8 +111,8 @@ it("explains why Keeper sought shelter from authorized deterministic evidence an
           },
           submit: (input, context) => owner.submit(input, context),
           deny: (input, principalId, denial) => owner.deny(input, principalId, denial),
-          prepareBuilt: (target, principalId, commandId, build) =>
-            owner.prepareBuilt(target, principalId, commandId, build),
+          prepareBuilt: (target, principalId, commandId, build, options) =>
+            owner.prepareBuilt(target, principalId, commandId, build, options),
         },
       });
       const post = async (endpoint: string, fields: object) => {

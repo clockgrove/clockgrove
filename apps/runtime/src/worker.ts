@@ -198,6 +198,7 @@ import {
 import type { ClientViewInput } from "./view-trace.js";
 import {
   decodeWorldCommandInput,
+  type PrepareBuiltOptions,
   type PreparedBuiltCommand,
   type PreparedCommandFields,
   runtimeFailureClass,
@@ -269,6 +270,7 @@ export interface RuntimeOwnerBindings {
       principalId: import("@clockgrove/contracts").PrincipalId,
       commandId: import("@clockgrove/contracts").CommandId,
       build: (fields: PreparedCommandFields) => WorldCommandInput,
+      options?: PrepareBuiltOptions,
     ): Promise<PreparedBuiltCommand>;
     deny(
       input: WorldCommandInput,
@@ -975,10 +977,12 @@ export class RuntimeWorker {
    * A purchase grant or refund from the developer's server (issue 329): the server builds the
    * `purchase.grant` / `purchase.refund` command under `runtime:world-purchase` (the world's owner's
    * by default, delegable; never an actor's or a system identity's), its command ID the
-   * purchase id's, so the journal grants a purchase once and a retry replays its receipt. A refused
-   * caller writes no receipt, so no one can take a purchase id. A refund needs the purchase's
-   * committed grant with the same fields. No world mode refuses either: they record the developer's
-   * outside bookkeeping, as clock controls are exempt.
+   * purchase id's, so the journal grants a purchase once and a retry replays its receipt. A prior
+   * attempt is matched by its scope and fields, not by who sent it, so a second holder's same
+   * request replays it and an owner refunds what a delegate granted. The caller is authorized
+   * before any answer, and a refused caller writes no receipt. A refund needs the purchase's
+   * committed grant with the same fields. No world mode refuses either: they record the
+   * developer's outside bookkeeping, as clock controls are exempt.
    */
   private purchase(request: Request, note: RequestNote): Promise<Response> {
     let purchase: PurchaseRequest | undefined;
@@ -998,13 +1002,15 @@ export class RuntimeWorker {
             identified.principalId,
             decodeOpaqueId(purchaseRequestCommandId(action, decoded.purchaseId), "CommandId"),
             (fields) =>
-              purchaseCommand(decoded, action, identified.principalId, {
+              purchaseCommand(decoded, action, fields.principalId ?? identified.principalId, {
                 epochs: fields.epochs,
                 expectedRevision: fields.expectedRevision ?? 0n,
                 context: fields.context ?? metadata,
                 issuedAt: fields.issuedAt ?? issuedAt,
               }),
+            { revision: true, priorPrincipal: true },
           );
+        let notGranted = false;
         if (decoded.action === "refund") {
           let granted: PreparedBuiltCommand | undefined;
           try {
@@ -1014,12 +1020,16 @@ export class RuntimeWorker {
           }
           if (granted?.input === undefined && granted !== undefined)
             throw new AuthorizationRefusedError("tenant membership required");
-          if (granted?.stored?.outcome !== "committed") return { refused: "purchase_not_granted" };
+          notGranted = granted?.stored?.outcome !== "committed";
         }
         const prepared = await prepare(decoded.action);
         if (prepared.input === undefined)
           throw new AuthorizationRefusedError("tenant membership required");
-        return { input: prepared.input, prepared };
+        return {
+          input: prepared.input,
+          prepared,
+          ...(notGranted ? { refused: "purchase_not_granted" as const } : {}),
+        };
       },
       (result, replayed) => {
         note.outcome = replayed ?? result.outcome;
@@ -1029,20 +1039,19 @@ export class RuntimeWorker {
           worldResultStatus(result),
         );
       },
-      { grant: PURCHASE_GRANT, recordDenial: false, modeExempt: true },
+      { grant: PURCHASE_GRANT, recordDenial: false, modeExempt: true, authorizeFirst: true },
     );
   }
 
   private async submitWorldCommand(
     request: Request,
     note: RequestNote,
-    decode: (identified: IdentifiedRuntimeRequest) => Promise<
-      | {
-          readonly input: WorldCommandInput;
-          readonly prepared?: PreparedBuiltCommand;
-        }
-      | { readonly refused: "purchase_not_granted" }
-    >,
+    decode: (identified: IdentifiedRuntimeRequest) => Promise<{
+      readonly input: WorldCommandInput;
+      readonly prepared?: PreparedBuiltCommand;
+      /** Refused after authorization, before the command is submitted. */
+      readonly refused?: "purchase_not_granted";
+    }>,
     answer: (
       result: WorldCommandResult,
       replayed: "replayed" | undefined,
@@ -1055,13 +1064,14 @@ export class RuntimeWorker {
       readonly recordDenial?: false;
       /** Whether the command is taken in every world mode, as a clock control is. */
       readonly modeExempt?: true;
+      /** Whether even a stored receipt is answered only to an authorized caller. */
+      readonly authorizeFirst?: true;
     } = {},
   ): Promise<Response> {
     let input: WorldCommandInput | undefined;
     try {
       const identified = await this.authenticator.identify(request.clone());
       const decoded = await decode(identified);
-      if ("refused" in decoded) return refusal(note, decoded.refused, 409);
       input = decoded.input;
       note.ids = {
         ...input.scope,
@@ -1074,7 +1084,7 @@ export class RuntimeWorker {
       if (bindings === undefined) throw new WorldOwnerUnavailableError();
       const prepared = decoded.prepared ?? (await bindings.prepare(input, identified.principalId));
       if (!prepared.tenantMember) throw new AuthorizationRefusedError("tenant membership required");
-      if (prepared.stored !== undefined)
+      if (prepared.stored !== undefined && options.authorizeFirst !== true)
         return answer(prepared.stored, "replayed", decoded.prepared?.storedPersonaId);
       if (!prepared.ready) return refusal(note, "world_not_ready", 409);
       let context: TrustedContext;
@@ -1104,6 +1114,9 @@ export class RuntimeWorker {
       if (options.grant === PURCHASE_GRANT && !mayHoldPurchaseGrant(context))
         throw new AuthorizationRefusedError("an actor or system identity never grants a purchase");
       note.authorization = "authorized";
+      if (decoded.refused !== undefined) return refusal(note, decoded.refused, 409);
+      if (prepared.stored !== undefined)
+        return answer(prepared.stored, "replayed", decoded.prepared?.storedPersonaId);
       // A read-only or paused world takes no command but its clock's controls (0085).
       if (
         prepared.mode !== undefined &&
