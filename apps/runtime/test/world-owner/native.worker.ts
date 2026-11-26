@@ -343,6 +343,19 @@ export class ActorAgentDO extends ProductionActorAgentDO {
     };
     return through(this.nativeResponder());
   }
+  /** A hook registered at `hooks.example.com` is answered by the test's local server. */
+  protected override admissionFetch(): typeof fetch {
+    const origin = (this.researchEnvironment as { NATIVE_USAGE_ADMISSION_ORIGIN?: string })
+      .NATIVE_USAGE_ADMISSION_ORIGIN;
+    const send = super.admissionFetch();
+    if (origin === undefined) return send;
+    return (input, init) => {
+      const url = new URL(String(input));
+      return url.host === "hooks.example.com"
+        ? send(`${origin}${url.pathname}${url.search}`, init)
+        : send(input, init);
+    };
+  }
   private nativeResponder(): ConversationResponder {
     if (this.researchEnvironment.NATIVE_RESEARCH_ORIGIN)
       return async (session, count, input, prompt) => {

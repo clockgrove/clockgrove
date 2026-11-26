@@ -199,12 +199,13 @@ export class PostgreSqlRunRecorder {
     runId: string,
     code: string,
     usage?: ModelUsage,
+    summary = "Model unavailable or research bound reached",
   ): Promise<void> {
     await this.client.query(
       `UPDATE clockgrove.run_steps SET status='failed',outcome_code=$3,${USAGE_COLUMNS},
-              summary='Model unavailable or research bound reached'
+              summary=$11
         WHERE tenant_id=$1 AND run_id=$2 AND kind='model_attempt' AND status='running'`,
-      [tenantId, runId, code, ...usageValues(usage)],
+      [tenantId, runId, code, ...usageValues(usage), summary],
     );
     const found = await this.client.query(
       `SELECT coalesce(max(step),0)+1 AS step FROM clockgrove.run_steps WHERE tenant_id=$1 AND run_id=$2`,
@@ -282,7 +283,9 @@ export class PostgreSqlRunRecorder {
           ? "Awaiting human approval"
           : kind === "tool_proposal"
             ? "Tool proposal checkpointed"
-            : "Tool result recorded as untrusted evidence",
+            : call.refusalCause !== undefined
+              ? `Usage refused: ${call.refusalCause}`.slice(0, 256)
+              : "Tool result recorded as untrusted evidence",
         JSON.stringify({
           callId: call.callId,
           effectId: call.effectId,
@@ -625,7 +628,7 @@ function entryMatch(entry: RunEntry): readonly [string, readonly unknown[]] {
          SELECT candidate.input_message_id FROM clockgrove.agent_runs candidate
           WHERE candidate.tenant_id=$1 AND candidate.session_id=$5 AND (
             candidate.turn=$6 OR candidate.turn IS NULL
-              AND candidate.outcome_code IN ('model_unavailable','model_steps_exhausted','cost_budget_exhausted','tool_calls_exhausted')
+              AND candidate.outcome_code IN ('model_unavailable','model_steps_exhausted','cost_budget_exhausted','tool_calls_exhausted','usage_refused')
               AND candidate.input_revision=($6::integer-1)*2 AND EXISTS (
                 SELECT 1 FROM clockgrove.run_steps committed WHERE committed.tenant_id=candidate.tenant_id
                   AND committed.run_id=candidate.run_id AND committed.kind='commit' AND committed.status='succeeded')))`,

@@ -622,6 +622,39 @@ export function composeUsageWebhooks(
   };
 }
 
+/** Sets usage budgets (0084); they send nothing outside, so they need no secret. */
+export function composeUsageBudgets(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
+): RuntimeOwnerBindings["usageBudgets"] {
+  const inspector = <T>(operation: (inspector: PostgreSqlUsageInspector) => Promise<T>) =>
+    withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+      operation(new PostgreSqlUsageInspector(client)),
+    );
+  return {
+    inspect: (input, context) => inspector((usage) => usage.setBudget(input, context)),
+    deny: (input, principalId, denial) =>
+      inspector((usage) => usage.deny(input, principalId, denial)),
+  };
+}
+
+/** Registers usage admission hooks (0084); absent without `USAGE_WEBHOOK_SECRET`. */
+export function composeUsageAdmissionHooks(
+  env: Pick<RuntimeEnvironment, "HYPERDRIVE" | "USAGE_WEBHOOK_SECRET">,
+): RuntimeOwnerBindings["usageAdmissionHooks"] {
+  const secret = env.USAGE_WEBHOOK_SECRET;
+  if (secret === undefined || secret === "") return undefined;
+  const inspector = <T>(operation: (inspector: PostgreSqlUsageInspector) => Promise<T>) =>
+    withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>
+      operation(new PostgreSqlUsageInspector(client)),
+    );
+  return {
+    inspect: (input, context) =>
+      inspector((usage) => usage.registerAdmissionHook(input, context, secret)),
+    deny: (input, principalId, denial) =>
+      inspector((usage) => usage.deny(input, principalId, denial)),
+  };
+}
+
 /** Posts every due usage webhook's next events (0083), as the scheduled recovery. */
 export async function deliverUsageWebhooks(env: RuntimeEnvironment) {
   const secret = env.USAGE_WEBHOOK_SECRET;
@@ -1555,6 +1588,8 @@ export default {
     const usage = composeUsageInspector(env);
     const journalPages = composeJournalInspector(env);
     const usageWebhooks = composeUsageWebhooks(env);
+    const usageBudgets = composeUsageBudgets(env);
+    const usageAdmissionHooks = composeUsageAdmissionHooks(env);
     const cognition = composeCognition(env);
     const inspector = <T>(operation: (inspector: PostgreSqlCausalInspector) => Promise<T>) =>
       withHyperdrivePostgreSqlClient(connection, (client) =>
@@ -1619,6 +1654,8 @@ export default {
         ...(usage === undefined ? {} : { usage }),
         ...(journalPages === undefined ? {} : { journalPages }),
         ...(usageWebhooks === undefined ? {} : { usageWebhooks }),
+        ...(usageBudgets === undefined ? {} : { usageBudgets }),
+        ...(usageAdmissionHooks === undefined ? {} : { usageAdmissionHooks }),
         ...(cognition === undefined ? {} : { cognition }),
         changeViewedSpace: (request, authorize) =>
           withHyperdrivePostgreSqlClient(env.HYPERDRIVE?.connectionString ?? "", (client) =>

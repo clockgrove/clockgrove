@@ -140,6 +140,10 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'actor_mutes', 'operator_read'),
   ('clockgrove', 'actor_mute_changes', 'operator_read'),
   ('clockgrove', 'usage_webhooks', 'registrar'),
+  ('clockgrove', 'usage_budgets', 'none'),
+  ('clockgrove', 'usage_tallies', 'none'),
+  ('clockgrove', 'usage_reservations', 'none'),
+  ('clockgrove', 'usage_admission_hooks', 'none'),
   ('clockgrove', 'moderation_shadow', 'participant_read'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
@@ -303,7 +307,8 @@ BEGIN
         'clockgrove.effect_intents', 'clockgrove.effect_attempts', 'clockgrove.effect_approvals', 'clockgrove.effect_resolutions',
         'clockgrove.wake_triage', 'clockgrove.mcp_installations', 'clockgrove.mcp_bindings', 'clockgrove.moderation_shadow',
         'clockgrove.usage_events', 'clockgrove.actor_mutes', 'clockgrove.actor_mute_changes',
-        'clockgrove.usage_webhooks'
+        'clockgrove.usage_webhooks', 'clockgrove.usage_budgets', 'clockgrove.usage_tallies',
+        'clockgrove.usage_reservations', 'clockgrove.usage_admission_hooks'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -2896,6 +2901,50 @@ BEGIN
   BEGIN
     UPDATE clockgrove.usage_webhooks SET principal_id = 'principal-b', webhook_id = 'taken';
     RAISE EXCEPTION 'a webhook changed registrar' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+END
+$$;
+ROLLBACK;
+
+-- Usage admission (0084): the four tables are reachable only through their definer functions, and
+-- a member without the grants, or another principal, cannot set a budget, register a hook or be
+-- admitted on a turn that is not theirs.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a', '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}');
+DO $$
+DECLARE
+  statement text;
+BEGIN
+  FOREACH statement IN ARRAY ARRAY[
+    'SELECT count(*) FROM clockgrove.usage_budgets', 'SELECT count(*) FROM clockgrove.usage_tallies',
+    'SELECT count(*) FROM clockgrove.usage_reservations',
+    'SELECT count(*) FROM clockgrove.usage_admission_hooks',
+    'INSERT INTO clockgrove.usage_budgets (tenant_id, world_id, timeline_id, space_id, scope, category, quantity, period, max_quantity, principal_id) VALUES (''tenant-a'', ''world-a'', ''timeline-a'', ''space-a'', ''world'', ''model_call'', ''calls'', ''total'', 1000000, ''principal-a'')',
+    'UPDATE clockgrove.usage_tallies SET calls = 0',
+    'DELETE FROM clockgrove.usage_reservations',
+    'INSERT INTO clockgrove.usage_admission_hooks (tenant_id, world_id, timeline_id, space_id, principal_id, hook_id, url) VALUES (''tenant-a'', ''world-a'', ''timeline-a'', ''space-a'', ''principal-a'', ''h'', ''https://evil.example/hook'')'
+  ] LOOP
+    BEGIN
+      EXECUTE statement;
+      RAISE EXCEPTION 'usage admission table reached directly: %', statement USING ERRCODE = 'XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  END LOOP;
+  BEGIN
+    PERFORM clockgrove.set_usage_budget('tenant-a', 'world-a', 'timeline-a', 'space-a', 'world',
+      'model_call', 'calls', 'total', 1000000);
+    RAISE EXCEPTION 'a member without the grants set a budget' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN
+    PERFORM clockgrove.register_usage_admission_hook('tenant-a', 'world-a', 'timeline-a',
+      'space-a', 'https://evil.example/hook');
+    RAISE EXCEPTION 'a member without the grants registered a hook' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  PERFORM pg_temp.act_as('tenant-a', 'principal-b',
+    '{"version":1,"allowedCategories":["public_scene","operator_evidence"]}');
+  BEGIN
+    PERFORM * FROM clockgrove.admit_usage('tenant-a', 'session-f', 'message-f', 'model_call', NULL,
+      'run_step');
+    RAISE EXCEPTION 'another principal was admitted on a turn' USING ERRCODE = 'XX999';
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END
 $$;

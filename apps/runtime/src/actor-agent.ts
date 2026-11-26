@@ -82,6 +82,15 @@ export interface TurnResearchHost {
     | "revoked"
     | "approver_unconfigured"
   >;
+  /**
+   * Whether the call already has its effect intent: admission is asked once per call, before the
+   * intent; a later pass of the same call only reads its recorded result.
+   */
+  toolIntended?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    call: TurnToolCall,
+  ): Promise<boolean>;
   /** Presentation only: observes the canonical attempt without dispatching or invoking cognition. */
   waitForToolStart?(
     participant: ConversationParticipant,
@@ -127,6 +136,17 @@ export interface TurnFiberHost {
   readonly prepare?: PreparedResponder | undefined;
   readonly research?: TurnResearchHost | undefined;
   capabilityRevision(): number;
+  /**
+   * Asks the space's budgets and admission hook before a model call or tool call of the turn
+   * (`docs/protocols/usage.md`); absent, every call is admitted. A refusal's `cause` is a
+   * `UsageRefusalCause`, with `usage_admission_refused:<reason>` for a hook's refusal.
+   */
+  admit?(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    category: "model_call" | "tool_call",
+    resource?: string,
+  ): Promise<{ readonly admitted: true } | { readonly admitted: false; readonly cause: string }>;
   beforeModel?(
     participant: ConversationParticipant,
     fiber: TurnFiber,
@@ -447,6 +467,24 @@ export class TurnFibers {
               }
             }
             if (response === undefined) {
+              const admission = await this.host.admit?.(participant, current, "model_call");
+              if (admission?.admitted === false)
+                response = {
+                  text: `Usage refused: ${admission.cause}. No model was called.`,
+                  outcomeCode: "usage_refused",
+                  usage: {
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    costMicrousd: 0,
+                    cachedInputTokens: 0,
+                    cacheWriteInputTokens: 0,
+                    reasoningTokens: 0,
+                    calls: 0,
+                  },
+                  refusalCause: admission.cause,
+                };
+            }
+            if (response === undefined) {
               try {
                 response =
                   prepared === undefined
@@ -604,6 +642,25 @@ export class TurnFibers {
             }
             if (call.approvalRequired && approval !== "approved")
               return { refused: "conversation_busy" };
+            // A call re-entered after its intent was recorded was admitted on its first pass.
+            const admission =
+              this.host.admit === undefined ||
+              (await this.host.research.toolIntended?.(participant, current, call))
+                ? undefined
+                : await this.host.admit(participant, current, "tool_call", call.capability);
+            if (admission?.admitted === false) {
+              next = await this.store((store) =>
+                store.completeTool!(participant, current, {
+                  ...call,
+                  status: "refused",
+                  code: "usage_refused",
+                  text: `Tool refused: usage_refused (${admission.cause})`,
+                  costMicrousd: 0,
+                  refusalCause: admission.cause,
+                }),
+              );
+              break;
+            }
             emit({
               type: "tool",
               callId: call.callId,

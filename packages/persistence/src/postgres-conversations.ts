@@ -29,6 +29,7 @@ import {
   type TurnModelStepReservation,
   type TurnResearchState,
   type TurnToolCall,
+  type UsageAdmissionGrant,
 } from "@clockgrove/application";
 import {
   type BrowserScope,
@@ -53,6 +54,7 @@ import {
   type TurnPhase,
   type TurnRequest,
   type TurnStatus,
+  type UsageAdmissionSource,
   VOICE_DISCLOSURES,
   type VoiceMode,
 } from "@clockgrove/contracts";
@@ -100,6 +102,7 @@ const RESEARCH_SYSTEM_OUTCOMES = new Set([
   "model_steps_exhausted",
   "cost_budget_exhausted",
   "tool_calls_exhausted",
+  "usage_refused",
 ]);
 const timestamp = (column: string) =>
   `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS ${column}`;
@@ -125,7 +128,7 @@ const MESSAGE_COLUMNS = `session_id, sequence, message_id, role, author_id, voic
     WHERE f.tenant_id=conversation_messages.tenant_id AND f.session_id=conversation_messages.session_id
       AND f.message_id=left(conversation_messages.message_id,-6) AND conversation_messages.role='actor'
       AND right(conversation_messages.message_id,6)=':reply'
-      AND f.outcome_code IN ('model_unavailable','model_steps_exhausted','cost_budget_exhausted','tool_calls_exhausted')) AS service_outcome,
+      AND f.outcome_code IN ('model_unavailable','model_steps_exhausted','cost_budget_exhausted','tool_calls_exhausted','usage_refused')) AS service_outcome,
   EXISTS(SELECT 1 FROM clockgrove.conversation_turn_fibers f
     WHERE f.tenant_id=conversation_messages.tenant_id AND f.session_id=conversation_messages.session_id
       AND f.message_id=left(conversation_messages.message_id,-6) AND conversation_messages.role='actor'
@@ -711,6 +714,9 @@ export class PostgreSqlConversationStore implements ConversationStore {
               fiber.runId,
               response.outcomeCode,
               response.usage,
+              response.refusalCause === undefined
+                ? undefined
+                : `Usage refused: ${response.refusalCause}`.slice(0, 256),
             );
         }
         await this.client.query(
@@ -856,6 +862,50 @@ export class PostgreSqlConversationStore implements ConversationStore {
         Number(row.research_model_answers),
       calls,
     };
+  }
+
+  async admitUsage(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    category: "model_call" | "tool_call",
+    resource?: string,
+    source: UsageAdmissionSource = "run_step",
+  ): Promise<UsageAdmissionGrant> {
+    return this.transaction(participant, async () => {
+      const result = await this.client.query(
+        "SELECT * FROM clockgrove.admit_usage($1,$2,$3,$4,$5,$6)",
+        [
+          fiber.scope.tenantId,
+          fiber.sessionId,
+          fiber.messageId,
+          category,
+          resource ?? null,
+          source,
+        ],
+      );
+      const row = result.rows[0] as Row;
+      return {
+        decision: row.decision === "admitted" ? "admitted" : "refused",
+        cause: nullable(row.cause) as UsageAdmissionGrant["cause"],
+        hook:
+          row.hook_id === null || row.hook_id === undefined
+            ? null
+            : { hookId: String(row.hook_id), url: String(row.hook_url) },
+        admission: {
+          category,
+          source,
+          resource: nullable(row.resource),
+          worldId: String(row.world_id),
+          timelineId: String(row.timeline_id),
+          spaceId: String(row.space_id),
+          principalId: String(row.principal_id),
+          personaId: nullable(row.persona_id),
+          actorId: String(row.actor_id),
+          sessionId: fiber.sessionId,
+          runId: nullable(row.run_id),
+        },
+      };
+    });
   }
 
   async reserveModelStep(

@@ -1223,6 +1223,17 @@ export function composeResearch(configuration: ResearchConfiguration) {
     }
   }
 
+  async function toolIntended(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    call: TurnToolCall,
+  ): Promise<boolean> {
+    if (participant.tenantId !== fiber.scope.tenantId) return false;
+    return configuration.withClient(
+      async (client) => (await intentOf(client, fiber.scope, call.effectId)) !== undefined,
+    );
+  }
+
   async function waitForToolStart(
     participant: ConversationParticipant,
     fiber: TurnFiber,
@@ -1508,6 +1519,7 @@ export function composeResearch(configuration: ResearchConfiguration) {
     admitApproval,
     retry,
     waitForToolStart,
+    toolIntended,
     consumer,
     sweep,
     deadLetter,

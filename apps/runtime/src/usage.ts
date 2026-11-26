@@ -5,6 +5,10 @@ import {
 } from "@clockgrove/application";
 import type {
   PrincipalId,
+  UsageAdmissionHookRegistration,
+  UsageAdmissionHookRequest,
+  UsageBudgetList,
+  UsageBudgetRequest,
   UsagePage,
   UsageQueryRequest,
   UsageWebhookRegistration,
@@ -15,6 +19,7 @@ import {
   type InspectorAccess,
   type PostgreSqlClient,
   PostgreSqlInspectorAudit,
+  PostgreSqlUsageAdmission,
   PostgreSqlUsageReader,
   PostgreSqlUsageWebhooks,
 } from "@clockgrove/persistence";
@@ -38,7 +43,15 @@ export function holdsUsageWebhookGrant(context: TrustedExecutionContext): boolea
 }
 
 /** The usage query's and webhook registration's routes (`docs/protocols/usage.md`). */
-export const USAGE_ROUTES = ["/v1/runtime/usage/query", "/v1/runtime/usage/webhook"] as const;
+export const USAGE_ROUTES = [
+  "/v1/runtime/usage/query",
+  "/v1/runtime/usage/webhook",
+  "/v1/runtime/usage/budget",
+  "/v1/runtime/usage/admission-hook",
+] as const;
+
+/** Setting a budget restricts spend and sends nothing out, so it needs the operator's grant. */
+const OPERATE_GRANT = "runtime:world-operate";
 
 /**
  * Usage events for inspectors (issue 329): the run inspector's `runtime:world-inspect` grant and
@@ -48,7 +61,9 @@ export class PostgreSqlUsageInspector {
   private readonly audit: PostgreSqlInspectorAudit;
   private readonly reader: PostgreSqlUsageReader;
   private readonly webhooks: PostgreSqlUsageWebhooks;
+  private readonly admission: PostgreSqlUsageAdmission;
   constructor(client: PostgreSqlClient) {
+    this.admission = new PostgreSqlUsageAdmission(client);
     this.webhooks = new PostgreSqlUsageWebhooks(client);
     this.audit = new PostgreSqlInspectorAudit(client);
     this.reader = new PostgreSqlUsageReader(client);
@@ -94,6 +109,71 @@ export class PostgreSqlUsageInspector {
       };
     } catch (error) {
       await this.audit.record(authorization, access(input, "allow", "failed", target));
+      throw error;
+    }
+  }
+
+  /** Sets one budget of the space (`usage-budget` audit) and lists them all. */
+  async setBudget(
+    input: UsageBudgetRequest,
+    context: TrustedExecutionContext,
+  ): Promise<UsageBudgetList> {
+    const { scope, category, quantity, period } = input.budget;
+    const target: AuditTarget = {
+      subject: "usage-budget",
+      entryId: `${scope}:${category}:${quantity}:${period}`,
+    };
+    const authorization = await this.admitted(input, context, [INSPECT_GRANT, OPERATE_GRANT]);
+    return this.refusedAsDenied(input, authorization, target, async () => ({
+      budgets: await this.admission.setBudget(authorization, input.scope, input.budget),
+    }));
+  }
+
+  /**
+   * Registers, replaces or disables the space's admission hook. It posts turn attribution to a
+   * host the caller names, so it takes the usage webhook's authority; the signing secret derives
+   * from the deployment secret and the hook's ID.
+   */
+  async registerAdmissionHook(
+    input: UsageAdmissionHookRequest,
+    context: TrustedExecutionContext,
+    deploymentSecret: string,
+  ): Promise<UsageAdmissionHookRegistration> {
+    const entryId = input.url === null ? "disabled" : new URL(input.url).origin;
+    const target: AuditTarget = { subject: "usage-admission-hook", entryId };
+    const authorization = await this.admitted(input, context, [INSPECT_GRANT], (trusted) => {
+      if (!holdsUsageWebhookGrant(trusted))
+        throw new AuthorizationRefusedError("usage admission hook authority refused");
+    });
+    return this.refusedAsDenied(input, authorization, target, async () => {
+      const hookId = await this.admission.registerHook(
+        authorization,
+        input.scope,
+        input.url,
+        entryId,
+      );
+      return {
+        hookId,
+        url: input.url,
+        signingSecret:
+          input.url === null ? null : await usageWebhookSecret(deploymentSecret, hookId),
+      };
+    });
+  }
+
+  /** A failure is audited apart; the database's refusal (`42501`) answers as an authority refusal. */
+  private async refusedAsDenied<T>(
+    input: { readonly scope: UsageQueryRequest["scope"] },
+    authorization: ReturnType<typeof worldAuthorization>,
+    target: AuditTarget,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      await this.audit.record(authorization, access(input, "allow", "failed", target));
+      if ((error as { code?: unknown }).code === "42501")
+        throw new AuthorizationRefusedError("usage admission refused");
       throw error;
     }
   }
@@ -151,7 +231,10 @@ export class PostgreSqlUsageInspector {
 
 type AuditTarget =
   | { readonly subject: "usage-events" }
-  | { readonly subject: "usage-webhook"; readonly entryId: string };
+  | {
+      readonly subject: "usage-webhook" | "usage-budget" | "usage-admission-hook";
+      readonly entryId: string;
+    };
 
 const READ: AuditTarget = { subject: "usage-events" };
 
@@ -162,5 +245,7 @@ function access(
   target: AuditTarget = READ,
 ): InspectorAccess {
   const { worldId, timelineId, spaceId } = input.scope;
+  // The audit's subject union (postgres-inspector-audit.ts) lacks the two admission subjects the
+  // database already accepts (0084).
   return { ...target, worldId, timelineId, spaceId, decision, reasonCode };
 }
