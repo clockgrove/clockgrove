@@ -1,327 +1,327 @@
 {
-  "note": "Approvals of the Wave 4 \u00a715.3 golden captures. An entry {\"file\", \"sha256\"} approves one capture file at one SHA-256, written \"sha256:<hex>\" exactly as the visual suite writes it into captures.json and qualify:wave4 into the manifest; qualify:wave4 reports any other capture as pending or changed. The review block names its approver: a person listed in approvers.json, or an agent citing a delegation approvers.json records; `clockgrove-assets check` refuses any other. A person approves a capture in a reviewed change, or an agent does on the owner's recorded delegation; CI never approves.",
+  "note": "Approvals of the Wave 4 §15.3 golden captures. An entry {\"file\", \"sha256\"} approves one capture file at one SHA-256, written \"sha256:<hex>\" exactly as the visual suite writes it into captures.json and qualify:wave4 into the manifest; qualify:wave4 reports any other capture as pending or changed. The review block names its approver: a person listed in approvers.json, or an agent citing a delegation approvers.json records; `clockgrove-assets check` refuses any other. A person approves a capture in a reviewed change, or an agent does on the owner's recorded delegation; CI never approves.",
   "approvals": [
     {
       "file": "daylight-dry@1536x864.png",
-      "sha256": "sha256:23a8308e14b254e0f9b25eca80233e0db7fef994dd06ffa812079ad07496bf94"
+      "sha256": "sha256:cd74a2abee5ad2334d9616fcf90bd3c7559bd7f6cbdec2458fe8ef75b328d49f"
     },
     {
       "file": "daylight-dry@1280x720.png",
-      "sha256": "sha256:0e939ba5f184bae90487404cee112f60acdbfb2bdb3707a278c64fc3e9baf481"
+      "sha256": "sha256:c55a73d660f912caad8684aa2edddb4819c7bf2be6bdaf1f29e96642e7086923"
     },
     {
       "file": "daylight-dry@390x844.png",
-      "sha256": "sha256:8c5adf774683e823c4d08f62319a8680fdd66ac494e9988e2f7c560d7233cbdd"
+      "sha256": "sha256:756135da6004670652722e853485fbcc860d05c2aca652354371979e25d4f008"
     },
     {
       "file": "dusk-rain-low@1536x864.png",
-      "sha256": "sha256:5c6bbd23f2430806568cc83df2413cd5e349f73cc22c2b6c0cc642a9ebc3835a"
+      "sha256": "sha256:c5564e3dd2232126e84a9a081502e2c742def5ccefb95b61a2bd1e7bf9599a70"
     },
     {
       "file": "dusk-rain-low@1280x720.png",
-      "sha256": "sha256:a4d9cc0b1078a211b81cab575c06aebb471336856f4566a68c48f91633e6c874"
+      "sha256": "sha256:cc690c889f05f630e2d9a49d82a1721897f6f7a129503639334293d774c43deb"
     },
     {
       "file": "dusk-rain-low@390x844.png",
-      "sha256": "sha256:0c93523cc36be6e86fc1a7ed2afa4289d6a6b176adc95394d5bf27ba838e880b"
+      "sha256": "sha256:eeb212037eabd84cf1b50ef56b81b6c1874acc08a4c2a3b45687ea7208b54e0a"
     },
     {
       "file": "dusk-rain-medium@1536x864.png",
-      "sha256": "sha256:2f40f6c213f31ed8235d4c13b8394698b543a9379ced8a96742fc5a5fa5639f6"
+      "sha256": "sha256:f84798301302e4a0f60565f3bce732395554424892eb6e0561eb7326093ad158"
     },
     {
       "file": "dusk-rain-medium@1280x720.png",
-      "sha256": "sha256:562583e05727132e85d8e1c3b1a714ecd08dec830821e6e4a69abeab1dea9e9c"
+      "sha256": "sha256:518c814d125b05b64bf241d2b87c22bbb15ef74c14b577b1743a4695e5e29cec"
     },
     {
       "file": "dusk-rain-medium@390x844.png",
-      "sha256": "sha256:e72cc1500fc5ca8b1fdbbf9dafc51c80e7cae6c0cf1124c8d91664adb113b2b7"
+      "sha256": "sha256:046c115d95dba5aecff1c624a77d3cca06b8a7eefdc7398c74ae6ef58a41644b"
     },
     {
       "file": "dusk-rain-high@1536x864.png",
-      "sha256": "sha256:362589d7e41708dc05ff04dc9680981c6b4b1544b09077db33975c358ea9c022"
+      "sha256": "sha256:3cf9eadfbea06b307dbc1d3a5b98be683ef6463ed7e9bac5f5a78a68553bd178"
     },
     {
       "file": "dusk-rain-high@1280x720.png",
-      "sha256": "sha256:50deab566026f929e607d4a160017c36b696662109f2551706587bbf5668b125"
+      "sha256": "sha256:0e9abf4b90475ae850202fd938ea99b3f18cb5f96e8fcd8765acb2a58da3c66b"
     },
     {
       "file": "dusk-rain-high@390x844.png",
-      "sha256": "sha256:b9c455fd93daaeceeeafb4682a8d53582e68f1bb8e9d6e467fc912abe9a06d91"
+      "sha256": "sha256:5142ad3eedaa31b7fd311e2c1147d225e1bc054da0202b23c331bf2ed2dbff39"
     },
     {
       "file": "dusk-rain@1536x864.png",
-      "sha256": "sha256:93c06bcef7a4ce9a8d106f8864130d0c74c51696cdf90beceed7895080c70fcb"
+      "sha256": "sha256:8bab045368ba6fe0f55d735152be8084f36c8d21faaaa688113244a3376a0b7c"
     },
     {
       "file": "dusk-rain@1280x720.png",
-      "sha256": "sha256:557500185b9f3634b4004bbde886d22356f42b52e1bcd0f72d5ac07f4d5d9a6f"
+      "sha256": "sha256:0c0c7f18966f73b8aefd53437a3278875689a1044ccbf1b88f7ae06b5ab25840"
     },
     {
       "file": "dusk-rain@390x844.png",
-      "sha256": "sha256:b614729d965a3227150517dccc2bb1c16b883f8e4607f1785cd2f94d6fa67f42"
+      "sha256": "sha256:91ab1db0a40cf13d2dd8360574aadd4a7e7b8077a84f58209830505471e833f7"
     },
     {
       "file": "night-rain-low@1536x864.png",
-      "sha256": "sha256:73ab53007c7befb5e761be838cac963a4a1d9feff79c5a73fcba9ffe4f929661"
+      "sha256": "sha256:c62fcc14771785cc1c32cae1c21f974010c88944def38845c05004c53148d065"
     },
     {
       "file": "night-rain-low@1280x720.png",
-      "sha256": "sha256:acf53b7828406418ca1367cbfa5d76a2c9ca40281a7786c7f8c7602d5050cf55"
+      "sha256": "sha256:43c6d63d249b46d7d3bfd56b4ebc34499a56c00a0dcabba245ac6368189cac11"
     },
     {
       "file": "night-rain-low@390x844.png",
-      "sha256": "sha256:235741276e8167b150b7846c3f3f0a463a3063083ab7c83370ba235fd93951aa"
+      "sha256": "sha256:7d3c8c818a4e1c2067ac62cae65ded44494f21c5bff904f78e4e8d5d3f6d1877"
     },
     {
       "file": "night-rain-medium@1536x864.png",
-      "sha256": "sha256:f20cf91d4734bb22c84e3ca9329244b7228305e10da26e85fce44c2ec386a290"
+      "sha256": "sha256:dff434b5ef5cfbab4afca02b83aed5ab3e1644636eea0cdc4d6b3f7980e366d4"
     },
     {
       "file": "night-rain-medium@1280x720.png",
-      "sha256": "sha256:9eb0d28acfd12dd1c6018064bd1f6ad97714f6e6051dd394b752fc826d631a03"
+      "sha256": "sha256:c0032ef86b060bbbb58382091eba388ad813cdd8dbb0f13f415cbcded935b689"
     },
     {
       "file": "night-rain-medium@390x844.png",
-      "sha256": "sha256:46735de9f96fde992ccee6c90530bdc22404ce99a0c568514e7607e7bfd4db5d"
+      "sha256": "sha256:147ba991685ed730f4453e0533b70284e9008da2c00dacadb4cbfb9a6b88ba42"
     },
     {
       "file": "night-rain-high@1536x864.png",
-      "sha256": "sha256:79a1fc04e615eeb5c50dcb58ce82d0c448491bed39aa9a0b83a0c0706d692a91"
+      "sha256": "sha256:59e930f81748eab3829123c3692b5b33de07f2aff024c5c0ef8217a7dedb4a5b"
     },
     {
       "file": "night-rain-high@1280x720.png",
-      "sha256": "sha256:5fcc5fed48adf6b5739ebd47dff6665bcbae4ebbf71f1186f5da6f275a3a092c"
+      "sha256": "sha256:fff6583e2e24f2fd65d4b7535e08429790a3a52b1b4f1f5b5d0f71a711f21d2c"
     },
     {
       "file": "night-rain-high@390x844.png",
-      "sha256": "sha256:195a062106d7638b7af74be54e37877a006cd2c077024ee8547b834b331651af"
+      "sha256": "sha256:6a7ceb4503be4deaa614788994a70faa49326750d901f3b561682d6816d5d1a2"
     },
     {
       "file": "selected-actor-rail@1536x864.png",
-      "sha256": "sha256:6889843132677f39b56e24c4db01ccf3e06b0b4f7b04048db8e37afa771fd386"
+      "sha256": "sha256:20f4248105630158d4652a3beee61e0a82512e4a26bd8c42d593d0d82c6698cd"
     },
     {
       "file": "selected-actor-rail@1280x720.png",
-      "sha256": "sha256:b28e891a89c1c28c28829d421ca77fb1252ac5708b3c79353f635da2ad910ad0"
+      "sha256": "sha256:66b38333744ea3897bc0a3e4772d65fee9d3339837263473af87977e74b81d74"
     },
     {
       "file": "selected-actor-rail@390x844.png",
-      "sha256": "sha256:330087678addce952fa50bffb4b7d72f129965b7d55e0337da03b679feaebbdc"
+      "sha256": "sha256:77025be94fadd5dc711b61c691ba33d3f14d6017701eb88f5847082258a5ca4a"
     },
     {
       "file": "event-why-inspector@1536x864.png",
-      "sha256": "sha256:e653b751bf7a3a96cc12d69f4ba284fb6c32c5e203bec18f68727659c3051f83"
+      "sha256": "sha256:dcb510e07e385fe071db4770865e1224197b05e7f02b2120fe09b290dd171cae"
     },
     {
       "file": "event-why-inspector@1280x720.png",
-      "sha256": "sha256:273f4aff9aa1413a1095ce346595e55ff6824844d2c092546fc73a1e53b57979"
+      "sha256": "sha256:19e8c80753ae3d057c8530f1a8a7ff58cdd853ae2a481fa5579b3a4f54f97798"
     },
     {
       "file": "event-why-inspector@390x844.png",
-      "sha256": "sha256:6005af73fd315243695967b1dd62793f6dba9698027f09643c38e63010e46db1"
+      "sha256": "sha256:c12cc45534514ae0109d3c4f080827ff0c09c807826b4c79b4088564fb9eccff"
     },
     {
       "file": "selected-inspectable-object@1536x864.png",
-      "sha256": "sha256:1c5e8813f761be3d33409fe3d8b97bf4378f382937bd88701bfebfa05b450792"
+      "sha256": "sha256:7eb2996d9116047dc57e806eb828ec079bcca01debd9cdfc1ee604543020b39c"
     },
     {
       "file": "selected-inspectable-object@1280x720.png",
-      "sha256": "sha256:486a6d4f2cc77e1db25c59362213c875695c2bd3a63c4de7fea5a55ea74897d7"
+      "sha256": "sha256:b1b4f8b53b9b9090889ef59b2d61377ecc4b8e4bb05437e784e6b85fbf576496"
     },
     {
       "file": "selected-inspectable-object@390x844.png",
-      "sha256": "sha256:cbf3e762007e6aff9531e3d979672c18ac0ebd194a42e94a360a7c7f01b931fb"
+      "sha256": "sha256:377e476768156fdc0bd191f3ca223f8a09744e7a533f7644cbf998159ae01c96"
     },
     {
       "file": "disconnected-recovering@1536x864.png",
-      "sha256": "sha256:ebe20922a298825a0729570645ce9e36c9371ec63d28e4ea199d4d66a2e3a58f"
+      "sha256": "sha256:ea6ad6c345bdd542fcf3af714d230dada5854cb63209e1f6a0f5eaf72526248d"
     },
     {
       "file": "disconnected-recovering@1280x720.png",
-      "sha256": "sha256:a090a241ee0abd5515ad27ffc30972adddb3203fd60ada9661bedbcdfd27cc93"
+      "sha256": "sha256:5df28fb16c86db68e7fdee42befb1de0f9bf131d555c26e4b57edde3c1d540d5"
     },
     {
       "file": "disconnected-recovering@390x844.png",
-      "sha256": "sha256:313d6d9cdc4ccfc16bfb6c821dd31432ed11bc6869dcab49dd65cc838b8eb472"
+      "sha256": "sha256:695c537e02abe1c4cda841295844d07b72abb346878f814173727359801894a4"
     },
     {
       "file": "text-access@1536x864.png",
-      "sha256": "sha256:a746fa1cb9eb7448a642fe22e2440f2c7b057ef37d4eb047f791023dde33a853"
+      "sha256": "sha256:ea37ef8902467208486dcc8594714d649c60177439f8a7ba247044c679b30746"
     },
     {
       "file": "text-access@1280x720.png",
-      "sha256": "sha256:e005f9d4e17973b6c1e9379effa7bc9f13e0db86abd3d791129b235396f98948"
+      "sha256": "sha256:fadad4b45e65aee7c144dd83a80923ed30a03c4d4d9b7d61991abc1d075beb3e"
     },
     {
       "file": "text-access@390x844.png",
-      "sha256": "sha256:543a009c9a9d2bf3d1f152e6d57113c4dd846c288d5a23456bbc8c1d697d9057"
+      "sha256": "sha256:4f1c6f126e70deebca6e34284b246f6344f45d8e616d00ec4ede46f201ef2615"
     },
     {
       "file": "webgl2/daylight-dry@1536x864.png",
-      "sha256": "sha256:4dcf4e5c2e6cdcce4bed493b4624797f98c07975dfdab1504e145f11a5d1afb4"
+      "sha256": "sha256:a16b7db51061dc93a93175733e7c54790a97707c347d06753965e51278451047"
     },
     {
       "file": "webgl2/daylight-dry@1280x720.png",
-      "sha256": "sha256:68db64cff45666211acaa74894cb1f19c2b4a450ccf471f0ec611abeca6a1d3a"
+      "sha256": "sha256:7bfc9967c8a38a3f50c8001d9a73ad6205392c03fac2bbc0935a3cf382786599"
     },
     {
       "file": "webgl2/daylight-dry@390x844.png",
-      "sha256": "sha256:e6b5e9a7a41bd93c66ba0edc52d3af1d0d65987a114907c8a3baef3f1a04b1c7"
+      "sha256": "sha256:0803c3fe1a6af2e702589c3ffe8fb5329a56fc21db56eab2a44cf0648a19948e"
     },
     {
       "file": "webgl2/dusk-rain-low@1536x864.png",
-      "sha256": "sha256:6a17ffad116dc6301e672b4ebb0c327ed316d350b865572838a8400f7e6b5bf3"
+      "sha256": "sha256:97488f26a532c156601681343d740f000c466477e1c42fc2fb08605462262b3a"
     },
     {
       "file": "webgl2/dusk-rain-low@1280x720.png",
-      "sha256": "sha256:56b99ebb39c6ad57648d6a6182f01a7c8b155671fb1b53afbf81ab739f64255e"
+      "sha256": "sha256:c68d5b5ddb042e35dbfa8051be1e3680424bd65ad31131bba0297185e96a46cf"
     },
     {
       "file": "webgl2/dusk-rain-low@390x844.png",
-      "sha256": "sha256:457881571f60a72cbaa6194d0863fe200de4d93fb5c12afc75480cc5d5af0b0a"
+      "sha256": "sha256:267eacfb76fcb1c00c1d01446de9a9c44656462d10d09c21a853a60f1f154926"
     },
     {
       "file": "webgl2/dusk-rain-medium@1536x864.png",
-      "sha256": "sha256:6e006dc5afd9f9a5465d24f92924fe76a46d1f376edcad2bfe265c92060d6735"
+      "sha256": "sha256:254fb6f0fd947b580aba061f5c6bfd125a39be053b6a649b9b7fb29b9efd2b7e"
     },
     {
       "file": "webgl2/dusk-rain-medium@1280x720.png",
-      "sha256": "sha256:e8216b01ef84b792cdce34079801574651df5a7be29c3a31443f89adf2ab146f"
+      "sha256": "sha256:e87d72b6de2d16f6c53698462bddeae19a59a0fee171f440611fb61134b08656"
     },
     {
       "file": "webgl2/dusk-rain-medium@390x844.png",
-      "sha256": "sha256:c362deddd71ee73ce920433ab51f51ac668fc8cc2b9440be33bb62e6fcd3c508"
+      "sha256": "sha256:e587738f15510c46f1b0e899a13d772b41dd11ea6dfc93bc968010d06e468db1"
     },
     {
       "file": "webgl2/dusk-rain-high@1536x864.png",
-      "sha256": "sha256:c0725eccbd632b06395b3e679da68ad6e67fbf14abd85dcb76f296fac09eecc7"
+      "sha256": "sha256:68bded4f076f4f4e7f15fdb8d650424da563f869f691500c582800195dfec86d"
     },
     {
       "file": "webgl2/dusk-rain-high@1280x720.png",
-      "sha256": "sha256:5c50f5f0a87749b361050dd0a031aefb8161d38b151dd674b72341181dbc62ff"
+      "sha256": "sha256:350770181db8b17185e7f67645975a4627aa6f34203ce9dfe60e879d6e0e4cc4"
     },
     {
       "file": "webgl2/dusk-rain-high@390x844.png",
-      "sha256": "sha256:ceeb48dcbe3e4b4c3c70ae878922b776cc1b1482c58ed158f192a4063c5a9fc1"
+      "sha256": "sha256:58957424589278e9879f286abea277f45254cbeb4b0a23f988057c749e979c41"
     },
     {
       "file": "webgl2/dusk-rain@1536x864.png",
-      "sha256": "sha256:768c8a03b732fdc01947a02b9eaa4fac28d4144c6a5ec17cb4fb978a99d03770"
+      "sha256": "sha256:efebb7accfc1b9fa2a08014a4012396d294df2b8a4a3f246df7fa766ef7a530d"
     },
     {
       "file": "webgl2/dusk-rain@1280x720.png",
-      "sha256": "sha256:b9f298d23936eb15e9cc0b02dc8b53ae600c9bf65e597633134f669a470b321e"
+      "sha256": "sha256:7319311e0773142c22be6239d2652b24258445caf294e354088bea70d6f31330"
     },
     {
       "file": "webgl2/dusk-rain@390x844.png",
-      "sha256": "sha256:d60dbeba60355af0b90391867b84abfe8272da4c996093136e4e4cafe7a50621"
+      "sha256": "sha256:aef06165722d74229aa84c25ad804607e1bb7581f443529fb47da7fd072a6468"
     },
     {
       "file": "webgl2/night-rain-low@1536x864.png",
-      "sha256": "sha256:cf148c93a8c920f86ee645e6e790f7b4a17b238f17dd64fd885050ac35c2237c"
+      "sha256": "sha256:c918b2c7bceef9ca7f85eebe133f2536d200eb179365d2cd3ce13def753e2115"
     },
     {
       "file": "webgl2/night-rain-low@1280x720.png",
-      "sha256": "sha256:a76825fcf94bf3bedcdb27d3a162000c656df8eb3f065c96ce66c03fa5320dd4"
+      "sha256": "sha256:63fe26f5f88138bb7485dcb893969610ee889ab686173c57e3e915ef1b473a74"
     },
     {
       "file": "webgl2/night-rain-low@390x844.png",
-      "sha256": "sha256:61a5246a1de9efd0b837c3bce8177665b6a334234c0e4ec3225a8e63f437c451"
+      "sha256": "sha256:65e6525542dfbe870dbda33b2bb7a2bbe989bf4d466bd53de816a7d7bc6a90c1"
     },
     {
       "file": "webgl2/night-rain-medium@1536x864.png",
-      "sha256": "sha256:70af859a2c319342343f138cb09fa3092235978950905427c80f89169ae19274"
+      "sha256": "sha256:3c0cef70a1f83396ed5a7f4648288d0477a8d07facfac23e943f07908b59b771"
     },
     {
       "file": "webgl2/night-rain-medium@1280x720.png",
-      "sha256": "sha256:94d48507c3ce84a2f56bd9b6c85549596dbd548c813c96585954d4423b023bd2"
+      "sha256": "sha256:5da06436a7083eb83beb3b7d02295795a9a4ab0119f2eb1f498f29f6a9fa2c75"
     },
     {
       "file": "webgl2/night-rain-medium@390x844.png",
-      "sha256": "sha256:fa878f83d00d3740522c25cfae249bd29e74f796c2495776cd591202c7f1348c"
+      "sha256": "sha256:2984d4cb5264a18fb9edb3b5133e562a8fad29b7eb34daea6125c4948384fdb3"
     },
     {
       "file": "webgl2/night-rain-high@1536x864.png",
-      "sha256": "sha256:2b255489fbb0bbb4191224ce3a167b1c91b89b9ac29e46dbe091e2d26b937da9"
+      "sha256": "sha256:60d23179bdb6e9bf166abbfb9224a88129b89e7556e6d4318d8d698a60b726e7"
     },
     {
       "file": "webgl2/night-rain-high@1280x720.png",
-      "sha256": "sha256:6c0c94ce798eee17fd601d47d9a70b178e35a19d4bf717e148c906dfc49c7b1c"
+      "sha256": "sha256:68fc2194ecdd54eebbe1ab6a7051cd33b761df2470d37cbf936b33f6b326bcb5"
     },
     {
       "file": "webgl2/night-rain-high@390x844.png",
-      "sha256": "sha256:3284146a10a5d5b3a31f35405bd86d0e1b57cc7751eb83a31dbbea3ed0a7d5b4"
+      "sha256": "sha256:2eead3fb71d513319e89c7a50c138437c45726712e4580dbb843ad6b16a80101"
     },
     {
       "file": "webgl2/selected-actor-rail@1536x864.png",
-      "sha256": "sha256:054829b5d14bf61563b19f72bcd1b5b29478a5311e302c33865356aafff1f3e5"
+      "sha256": "sha256:8f6ec3603ce3aaba83227b9f603a3132a9aadd9ddc20689ece9147fb36d07138"
     },
     {
       "file": "webgl2/selected-actor-rail@1280x720.png",
-      "sha256": "sha256:a52fef9dc539b1d5d4689da9992a4b2f9883d919662d23ed9f87571a7696b0c0"
+      "sha256": "sha256:ea4543ea8b6388f5ebb959d9b27ae460eeda17be4bb66f16310f487a1b4f3c8a"
     },
     {
       "file": "webgl2/selected-actor-rail@390x844.png",
-      "sha256": "sha256:330087678addce952fa50bffb4b7d72f129965b7d55e0337da03b679feaebbdc"
+      "sha256": "sha256:77025be94fadd5dc711b61c691ba33d3f14d6017701eb88f5847082258a5ca4a"
     },
     {
       "file": "webgl2/event-why-inspector@1536x864.png",
-      "sha256": "sha256:e653b751bf7a3a96cc12d69f4ba284fb6c32c5e203bec18f68727659c3051f83"
+      "sha256": "sha256:dcb510e07e385fe071db4770865e1224197b05e7f02b2120fe09b290dd171cae"
     },
     {
       "file": "webgl2/event-why-inspector@1280x720.png",
-      "sha256": "sha256:273f4aff9aa1413a1095ce346595e55ff6824844d2c092546fc73a1e53b57979"
+      "sha256": "sha256:19e8c80753ae3d057c8530f1a8a7ff58cdd853ae2a481fa5579b3a4f54f97798"
     },
     {
       "file": "webgl2/event-why-inspector@390x844.png",
-      "sha256": "sha256:6005af73fd315243695967b1dd62793f6dba9698027f09643c38e63010e46db1"
+      "sha256": "sha256:c12cc45534514ae0109d3c4f080827ff0c09c807826b4c79b4088564fb9eccff"
     },
     {
       "file": "webgl2/selected-inspectable-object@1536x864.png",
-      "sha256": "sha256:347e3de6ecfd7c34f716adb70ba2e412a43632654c98c5412cc86291407ae48e"
+      "sha256": "sha256:2deac638576e2941c5f7b844076a1c1a9d1e884a2c9a85d8f7888d93397189d5"
     },
     {
       "file": "webgl2/selected-inspectable-object@1280x720.png",
-      "sha256": "sha256:7cfcf79f61106c69a9ed6bb8e079a4ad34fc5768ba939eee4a9a7c1ad5c1074d"
+      "sha256": "sha256:2f57ac509cca49c351d7ad1f35a8fdc4a665559e3927437894e0a81f2c06ff29"
     },
     {
       "file": "webgl2/selected-inspectable-object@390x844.png",
-      "sha256": "sha256:cbf3e762007e6aff9531e3d979672c18ac0ebd194a42e94a360a7c7f01b931fb"
+      "sha256": "sha256:377e476768156fdc0bd191f3ca223f8a09744e7a533f7644cbf998159ae01c96"
     },
     {
       "file": "webgl2/disconnected-recovering@1536x864.png",
-      "sha256": "sha256:c7d0fd8df32c869c9a368235a80a90c17c590be302a237d899d4cbfc6a38209a"
+      "sha256": "sha256:4104d5014ab3d551752233029fd893402c8742a6c34e03ffff54a705905aeb91"
     },
     {
       "file": "webgl2/disconnected-recovering@1280x720.png",
-      "sha256": "sha256:8f40559001ece0871ebdb089204a0b06259ca35faf84923554122f16fe1076f9"
+      "sha256": "sha256:d9294a4dd755b7e972a596a7aae33771d1bd9833f37ff48023b177fe330605b4"
     },
     {
       "file": "webgl2/disconnected-recovering@390x844.png",
-      "sha256": "sha256:313d6d9cdc4ccfc16bfb6c821dd31432ed11bc6869dcab49dd65cc838b8eb472"
+      "sha256": "sha256:695c537e02abe1c4cda841295844d07b72abb346878f814173727359801894a4"
     },
     {
       "file": "webgl2/text-access@1536x864.png",
-      "sha256": "sha256:a746fa1cb9eb7448a642fe22e2440f2c7b057ef37d4eb047f791023dde33a853"
+      "sha256": "sha256:ea37ef8902467208486dcc8594714d649c60177439f8a7ba247044c679b30746"
     },
     {
       "file": "webgl2/text-access@1280x720.png",
-      "sha256": "sha256:e005f9d4e17973b6c1e9379effa7bc9f13e0db86abd3d791129b235396f98948"
+      "sha256": "sha256:fadad4b45e65aee7c144dd83a80923ed30a03c4d4d9b7d61991abc1d075beb3e"
     },
     {
       "file": "webgl2/text-access@390x844.png",
-      "sha256": "sha256:543a009c9a9d2bf3d1f152e6d57113c4dd846c288d5a23456bbc8c1d697d9057"
+      "sha256": "sha256:4f1c6f126e70deebca6e34284b246f6344f45d8e616d00ec4ede46f201ef2615"
     }
   ],
   "review": {
-    "objective": "#363 (and the pack changes since d5a077d)",
+    "objective": "#267, #273, #364, #375, #396 and #464 (and the pack and renderer changes since c703023)",
     "approver": {
       "kind": "agent",
       "agent": "Claude agent (Clockgrove owner session)",
       "delegation": "kirk-2026-11-16-fixture-goldens"
     },
-    "scope": "All 78 captures from Wave 4 qualification runs 44239785990 and 44239805102 on main c703023, which agree on every digest. 76 differ from the previous approvals (d5a077d, runs 43746149035/43746169619); event-why-inspector@390x844 on both backends is unchanged.",
-    "findings": "Every file was inspected at its viewport and backend and pixel-diffed against the previous approved capture. Every change traces to one of two causes. First, the world id in the World select, heading and title (worldid_2aff39ee\u2026 to worldid_fec2fe94\u2026), which follows from the fixture pack moving to clockgrove.fixture-hall@1.3.0 (#355) and its other changes (#354, #363); the HUD clock group shifts 1 px with the select's width. Second, the herb now sways at the medium and high tiers, because the presentation declares sway (#363); the low tier has no wind and shows no change. Rendering is clean, and WebGL2 parity is unchanged from the previous approvals."
+    "scope": "All 78 captures from Wave 4 qualification runs 45752846752 and 45752857784 on main 175bf754, which agree on every digest. All 78 differ from the previous approvals (c703023, runs 44239785990/44239805102).",
+    "findings": "Every file was inspected at its viewport and backend and pixel-diffed against the previous approved capture: three per-viewport reviews of the scene changes on 96e64f48, then a direct check of the event feed on a7dae70d and 175bf754. Every change traces to one of five causes. First, the world id in the World select, heading and title, which follows from the fixture pack moving to clockgrove.fixture-hall@1.6.0 (#359, #375, #364); the HUD shifts a few px with it. Second, the graded surface patch drawn on the ground (#267). Third, grounded characters, soft contact shadows in place of the flat ellipses, depth-true occlusion behind the den and shelter, and the porch lamp's light at dusk and night (#266 parts 1 to 4, with #364's cover rule). Fourth, the keeper's rail heading, which now reads \"Actor's subjective perspective\" (#396). Fifth, the Flashback controls (#273); #464 corrected their event-feed layout, so event text wraps by whole words and each card keeps its time and its Flashback button in separate space. Entity positions in every capture's announced text are unchanged. Rendering is clean, WebGL2 matches WebGPU as in the previous approvals, and the phone layout is unchanged between a7dae70d and 175bf754."
   }
 }
