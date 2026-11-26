@@ -419,6 +419,67 @@ body {
     border-radius: var(--cg-v1-radius-md);
     box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
   }
+
+  /*
+   * #464: beside the card, an entry's flashback narrowed the card's text column so far that words
+   * broke mid-word. On the desktop frame it sits on the card's lower-right corner instead, under
+   * the time, so the message keeps the whole text column. The card and the button share the row's
+   * one grid cell; the button comes later in the DOM (and the tab order), so it paints on top.
+   */
+  .rw-feed li:has(> .rw-feed-flashback) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rw-feed li:has(> .rw-feed-flashback) > * {
+    grid-area: 1 / 1;
+  }
+
+  /* The card's own border and padding (the shell's button hairline and spacing) inset the button. */
+  .rw-feed li > .rw-feed-flashback {
+    align-self: end;
+    justify-self: end;
+    margin: calc(var(--cg-v1-space-1) + 1px) calc(var(--cg-v1-space-2) + 1px);
+    padding: 0 var(--cg-v1-space-1);
+  }
+
+  /* The time sits at the foot of the first row, above the space the second row keeps for the button. */
+  .rw-feed li:has(> .rw-feed-flashback) > .rw-feed-item {
+    grid-template-rows: 1fr auto;
+    row-gap: 0;
+  }
+
+  .rw-feed li:has(> .rw-feed-flashback) > .rw-feed-item > .rw-feed-icon {
+    grid-column: 1;
+    grid-row: 1 / -1;
+  }
+
+  .rw-feed li:has(> .rw-feed-flashback) > .rw-feed-item > .rw-feed-text {
+    grid-column: 2;
+    grid-row: 1 / -1;
+  }
+
+  .rw-feed li:has(> .rw-feed-flashback) > .rw-feed-item > time {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: end;
+  }
+
+  /*
+   * An unseen copy of the button's box keeps its place in the card's time column, so the message
+   * never runs under it. It repeats the button's label ("Flashback" in hud.tsx) to be exactly as
+   * wide; change both together. Its empty alternative text keeps it out of the card's name.
+   */
+  .rw-feed li:has(> .rw-feed-flashback) > .rw-feed-item::after {
+    content: "Flashback" / "";
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+    visibility: hidden;
+    padding: 0 var(--cg-v1-space-1);
+    border: 1px solid transparent;
+    font-size: 0.8rem;
+  }
 }
 
 @media (max-width: 1199.98px) {

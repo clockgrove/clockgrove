@@ -1407,6 +1407,35 @@ const observeHall = async (backend) => {
               feedBox[0] + feedBox[2] < canvasBox[0],
             ]).toEqual([true, height - 16, true]);
             expect(await feed.locator("ol").isVisible()).toBe(true);
+            // #464: each entry's Flashback sits on its card, and no word of a message breaks across
+            // lines (a hyphen is a break of its own), as before the Flashback arrived.
+            expect(
+              await feed.locator("li:has(> .rw-feed-flashback)").evaluateAll((rows) =>
+                rows.flatMap((row) => {
+                  const card = row.querySelector(".rw-feed-item").getBoundingClientRect();
+                  const action = row.querySelector(".rw-feed-flashback").getBoundingClientRect();
+                  const inside =
+                    action.left >= card.left &&
+                    action.right <= card.right &&
+                    action.top >= card.top &&
+                    action.bottom <= card.bottom;
+                  const broken = [];
+                  const walker = document.createTreeWalker(
+                    row.querySelector(".rw-feed-text"),
+                    NodeFilter.SHOW_TEXT,
+                  );
+                  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                    for (const word of node.data.matchAll(/[^\s-]+/g)) {
+                      const range = document.createRange();
+                      range.setStart(node, word.index);
+                      range.setEnd(node, word.index + word[0].length);
+                      if (range.getClientRects().length > 1) broken.push(word[0]);
+                    }
+                  }
+                  return inside && broken.length === 0 ? [] : [{ inside, broken }];
+                }),
+              ),
+            ).toEqual([]);
           } else {
             // The rail is a bottom sheet and the feed a collapsed sheet; selection is unchanged.
             expect([
