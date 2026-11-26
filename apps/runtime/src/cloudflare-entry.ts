@@ -652,7 +652,7 @@ export function composeWorldModes(
   };
 }
 
-/** Sets offers (0086); they send nothing outside, so they need no secret. */
+/** Sets offers (0086); the engine never calls their checkout URL, so they need no secret. */
 export function composeWorldOffers(
   env: Pick<RuntimeEnvironment, "HYPERDRIVE">,
 ): RuntimeOwnerBindings["worldOffers"] {

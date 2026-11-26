@@ -14,7 +14,10 @@ export const OFFER_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/u;
 export const MAX_OFFER_TITLE = 80;
 /** Decision: a short paragraph. */
 export const MAX_OFFER_TEXT = 280;
-/** Decision: at most 100 offers a space, a page. */
+/**
+ * Decision: at most 100 offer ids a space, a page. A withdrawn offer keeps its id (its past events
+ * name it), so it still counts; setting a withdrawn id again reuses it.
+ */
 export const MAX_SPACE_OFFERS = 100;
 
 /** One offer as the developer defined it. */

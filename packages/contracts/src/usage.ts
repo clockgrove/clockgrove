@@ -27,6 +27,7 @@ export const USAGE_SOURCES = [
   "wake_triage",
   "moderation_shadow",
   "offer_presentation",
+  "actor_reply_shadow",
 ] as const;
 export type UsageSource = (typeof USAGE_SOURCES)[number];
 

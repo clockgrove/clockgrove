@@ -1,5 +1,6 @@
 import type {
   ActorReplyShadowRecord,
+  ConversationParticipant,
   ConversationResponder,
   ModerationShadowPolicy,
   ShadowDecider,
@@ -517,8 +518,12 @@ export class ActorAgentDO extends ProductionActorAgentDO {
     );
   }
   /** Keeps each telemetry record, as the production log line carries it, for the test to read. */
-  protected override async recordActorReply(record: ActorReplyShadowRecord): Promise<void> {
-    await super.recordActorReply(record);
+  protected override async recordActorReply(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    record: ActorReplyShadowRecord,
+  ): Promise<void> {
+    await super.recordActorReply(participant, fiber, record);
     const records = (await this.objectState.storage.get<string[]>("actor-reply-records")) ?? [];
     records.push(JSON.stringify(record));
     await this.objectState.storage.put("actor-reply-records", records);

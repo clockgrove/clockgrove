@@ -73,10 +73,15 @@ it.skipIf(!isNativeWorldOwnerChild())(
           (event) => event.source === "offer_presentation",
         );
 
-      // Defining an offer is the operator's grant, as a mode is.
+      // Defining an offer is the purchase's grant, which the operator's grant never implies.
       expect((await setOffer("lantern", upgrade)).status).toBe(403);
       await owner.sql(
         `UPDATE clockgrove.world_memberships SET grants = array_append(grants, 'runtime:world-operate')
+          WHERE principal_id = 'principal-outsider'`,
+      );
+      expect((await setOffer("lantern", upgrade)).status).toBe(403);
+      await owner.sql(
+        `UPDATE clockgrove.world_memberships SET grants = array_append(grants, 'runtime:world-purchase')
           WHERE principal_id = 'principal-outsider'`,
       );
       expect((await setOffer("lantern", upgrade)).body).toEqual({
@@ -129,7 +134,7 @@ it.skipIf(!isNativeWorldOwnerChild())(
       expect(choice.offer.chosen).toBe(true);
       expect(decodeOfferChoice((await choose("lantern")).body).eventId).toBe(choice.eventId);
       expect(offerCheckoutHref(choice)).toBe(
-        `https://shop.example/checkout?item=lantern&clockgrove_choice=${choice.eventId.replace(":", "%3A")}`,
+        `https://shop.example/checkout?item=lantern&clockgrove_choice=${choice.eventId.replaceAll(":", "%3A")}`,
       );
       const events = await offerEvents();
       expect(events.map((event) => event.category)).toEqual(["offer_shown", "offer_chosen"]);

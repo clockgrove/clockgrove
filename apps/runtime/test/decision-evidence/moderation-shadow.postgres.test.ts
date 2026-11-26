@@ -240,6 +240,7 @@ it("records private reversible shadow judgements and reports independent accurac
       latencyMs: judged["moderation-0"]!.latencyMs,
       costMicrousd: 200,
       detail: null,
+      usage: { calls: 1, inputTokens: null, outputTokens: null },
     });
     expect(judged["moderation-2"]).toMatchObject({
       status: "failed",
@@ -253,6 +254,27 @@ it("records private reversible shadow judgements and reports independent accurac
     const telemetry = JSON.stringify(await replyRecords());
     expect(telemetry).not.toContain("Scripted fixture reply");
     expect(telemetry).not.toContain("private message known");
+    // Each judged reply's model call is a usage event from its durable record (0087), keyed by
+    // the turn, attributed to the turn's player, persona and actor, with no run.
+    const replyUsage = JSON.parse(
+      await owner.sql(
+        `SELECT jsonb_build_object(
+          'total', count(*),
+          'keyed', count(*) FILTER (WHERE EXISTS (SELECT 1 FROM clockgrove.actor_reply_shadow r WHERE u.event_id = 'actor_reply_shadow:' || encode(sha256(convert_to(jsonb_build_array(r.session_id, r.message_id)::text, 'UTF8')), 'hex'))),
+          'shared', jsonb_agg(DISTINCT jsonb_build_array(category, principal_id, persona_id,
+            actor_id, run_id)),
+          'statuses', jsonb_agg(DISTINCT status),
+          'calls', jsonb_agg(DISTINCT quantities->'calls'))::text
+        FROM clockgrove.usage_events u WHERE source = 'actor_reply_shadow'`,
+      ),
+    );
+    expect(replyUsage).toEqual({
+      total: texts.length,
+      keyed: texts.length,
+      shared: [["model_call", "principal-runtime", "persona-runtime", actor.objectId, null]],
+      statuses: ["failed", "judged"],
+      calls: [1],
+    });
     delete process.env.ACTOR_REPLY_SHADOW_CONFIG;
     expect(
       await owner.sql("SELECT state_hash FROM clockgrove.partition_states ORDER BY partition_id"),

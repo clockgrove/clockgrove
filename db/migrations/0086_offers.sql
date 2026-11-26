@@ -87,9 +87,13 @@ $$;
 REVOKE ALL ON FUNCTION clockgrove.space_offers(text, text, text, text) FROM PUBLIC;
 
 -- Sets or (with `withdraw`) withdraws one offer of the space, and answers the space's offers.
--- Defining an offer shows the developer's text in the world and sends nothing outside, so it takes
--- what a budget or a mode takes: the usage reader's grant and ceiling, and `runtime:world-operate`.
--- Decision: at most 100 offers a space, a page.
+-- An offer puts the developer's commerce in front of every player who talks to its actor, with a
+-- link to a checkout host the caller names, so it takes the purchase's authority, not the
+-- operator's: the usage reader's grant and ceiling, and `runtime:world-purchase`, which a world's
+-- owner holds by default and may delegate (the owner's decision of 2026-11-26 on purchases); an
+-- actor or system identity never qualifies. `runtime:world-operate` never implies it.
+-- Decision: at most 100 offer ids a space, a page. Rows are never deleted, so a withdrawn offer's id
+-- still counts; setting it again reuses it.
 CREATE FUNCTION clockgrove.set_world_offer(t text, w text, tl text, s text, oid text, actor text,
   ttl text, txt text, url text, withdraw boolean)
 RETURNS TABLE (offer_id text, actor_id text, title text, body text, checkout_url text)
@@ -100,7 +104,8 @@ BEGIN
        SELECT 1 FROM clockgrove.world_memberships m
         WHERE m.tenant_id = t AND m.world_id = w AND m.timeline_id = tl AND m.space_id = s
           AND m.principal_id = clockgrove.runtime_principal_id() AND m.revoked_at IS NULL
-          AND 'runtime:world-operate' = ANY(m.grants)) THEN
+          AND NOT 'actor' = ANY(m.roles) AND left(m.principal_id, 7) <> 'system:'
+          AND ('runtime:world-purchase' = ANY(m.grants) OR 'owner' = ANY(m.roles))) THEN
     RAISE EXCEPTION 'world offer refused' USING ERRCODE = '42501';
   END IF;
   IF withdraw THEN

@@ -147,6 +147,7 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'world_modes', 'none'),
   ('clockgrove', 'world_offers', 'none'),
   ('clockgrove', 'offer_presentations', 'none'),
+  ('clockgrove', 'actor_reply_shadow', 'none'),
   ('clockgrove', 'moderation_shadow', 'participant_read'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
@@ -312,7 +313,7 @@ BEGIN
         'clockgrove.usage_events', 'clockgrove.actor_mutes', 'clockgrove.actor_mute_changes',
         'clockgrove.usage_webhooks', 'clockgrove.usage_budgets', 'clockgrove.usage_tallies',
         'clockgrove.usage_reservations', 'clockgrove.usage_admission_hooks', 'clockgrove.world_modes',
-        'clockgrove.world_offers', 'clockgrove.offer_presentations'
+        'clockgrove.world_offers', 'clockgrove.offer_presentations', 'clockgrove.actor_reply_shadow'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -2986,7 +2987,7 @@ $$;
 ROLLBACK;
 
 -- Offers (0086): both tables are reachable only through their definer functions; a member without
--- `runtime:world-operate` cannot set an offer, and no one shows or chooses an offer in a session
+-- `runtime:world-purchase` (or the owner role) cannot set an offer, and no one shows or chooses an offer in a session
 -- they are not a participant of.
 BEGIN;
 SELECT pg_temp.act_as('tenant-a', 'principal-a', '{"version":1,"allowedCategories":["public_scene","operator_evidence","conversation"]}');

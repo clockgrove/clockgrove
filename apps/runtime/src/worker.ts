@@ -321,7 +321,7 @@ export interface RuntimeOwnerBindings {
   >;
   /** Sets the space's mode (0085); needs `runtime:world-operate`. */
   readonly worldModes?: AuditedPort<WorldModeRequest, WorldModeState>;
-  /** Sets or withdraws an offer of the space (0086); needs `runtime:world-operate`. */
+  /** Sets or withdraws an offer of the space (0086); needs `runtime:world-purchase`. */
   readonly worldOffers?: AuditedPort<WorldOfferRequest, WorldOfferList>;
   /** Context manifests and governed actor documents (0037), audited like the run inspector. */
   readonly cognition?: {

@@ -28,6 +28,7 @@ import {
   PostgreSqlUsageWebhooks,
 } from "@clockgrove/persistence";
 import { INSPECT_GRANT } from "./inspector.js";
+import { mayHoldPurchaseGrant, PURCHASE_GRANT } from "./purchases.js";
 import { usageWebhookSecret } from "./usage-webhooks.js";
 import { assertWorldCommandContext, worldAuthorization } from "./world-commands.js";
 
@@ -155,15 +156,25 @@ export class PostgreSqlUsageInspector {
 
   /**
    * Sets or withdraws one offer of the space (`world-offer` audit, the entry the offer's ID). It
-   * shows the developer's text in the world and sends nothing outside, so it needs the operator's
-   * grant beside the reader's, as a mode.
+   * puts the developer's commerce and checkout link in front of players, so it needs
+   * `runtime:world-purchase` beside the reader's grant, as a purchase does.
    */
   async setOffer(
     input: WorldOfferRequest,
     context: TrustedExecutionContext,
   ): Promise<WorldOfferList> {
     const target: AuditTarget = { subject: "world-offer", entryId: input.offerId };
-    const authorization = await this.admitted(input, context, [INSPECT_GRANT, OPERATE_GRANT]);
+    // An offer is the developer's commerce, linked to a checkout host the caller names: the
+    // purchase's grant (owner-held by default, delegable), never the operator's.
+    const authorization = await this.admitted(
+      input,
+      context,
+      [INSPECT_GRANT, PURCHASE_GRANT],
+      (trusted) => {
+        if (!mayHoldPurchaseGrant(trusted))
+          throw new AuthorizationRefusedError("world offer authority refused");
+      },
+    );
     return this.refusedAsDenied(input, authorization, target, async () => ({
       offers: await this.admission.setOffer(authorization, input),
     }));

@@ -79,6 +79,7 @@ import {
 import type { ModelGateway } from "@clockgrove/model-gateway";
 import {
   PostgreSqlActorDocuments,
+  PostgreSqlActorReplyShadow,
   type PostgreSqlClient,
   PostgreSqlLifecycleWorkflowStore,
   PostgreSqlModerationShadow,
@@ -1376,9 +1377,19 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
   ): ShadowDecider | undefined {
     return moderationShadowDecider(this.environment, policy, fiber);
   }
-  /** Contentless telemetry: one structured log line per judged reply, never its text. */
-  protected recordActorReply(record: ActorReplyShadowRecord): void | Promise<void> {
+  /**
+   * Contentless telemetry: one structured log line per judged reply, never its text, and its
+   * durable record (0087), whose commit is the judging model call's usage event (issue 329).
+   */
+  protected async recordActorReply(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    record: ActorReplyShadowRecord,
+  ): Promise<void> {
     console.log(JSON.stringify({ event: "actor-reply-shadow", ...record }));
+    await withWakeTriageClient(this.environment, (client) =>
+      new PostgreSqlActorReplyShadow(client).record(participant, fiber, record),
+    );
   }
   /** Judges a committed reply beside the turn; the platform keeps the object alive for it. */
   private judgeActorReply(
@@ -1405,7 +1416,7 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
           "actor_reply_shadow",
           this.actorReplyDecider(policy, fiber),
         ),
-        (record) => this.recordActorReply(record),
+        (record) => this.recordActorReply(participant, fiber, record),
       ).catch(() => {
         console.warn(
           JSON.stringify({

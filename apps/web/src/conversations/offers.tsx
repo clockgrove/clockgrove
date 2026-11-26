@@ -23,6 +23,15 @@ export function ConversationOffers({
       if (!live) return;
       if ("refused" in answer) return setRefused(answer.refused);
       setOffers(answer.offers);
+      // An offer chosen earlier in this session (before a reload, or in another visit to this
+      // conversation) keeps its checkout link: a repeated choice records nothing new and answers
+      // the same event ID.
+      for (const offer of answer.offers)
+        if (offer.chosen)
+          void session.chooseOffer(sessionId, offer.offerId).then((choice) => {
+            if (live && !("refused" in choice))
+              setChoices((current) => ({ ...current, [offer.offerId]: choice }));
+          });
     });
     return () => {
       live = false;

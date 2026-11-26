@@ -114,7 +114,7 @@ export class PostgreSqlUsageAdmission {
 
   /**
    * Sets or (with `offer: null`) withdraws one offer of the space (0086), audited as `world-offer`
-   * with the offer's ID, and answers the space's offers. A space holds at most 100.
+   * with the offer's ID, and answers the space's offers. A space holds at most 100 offer ids, withdrawn ones included.
    */
   async setOffer(
     authorization: RuntimeAuthorizationContext,
@@ -144,7 +144,10 @@ export class PostgreSqlUsageAdmission {
       return found;
     }).catch((error: unknown) => {
       if ((error as { code?: unknown }).code === "54000")
-        throw new ContractDecodeError("worldOffer.offerId", "at most 100 offers a space");
+        throw new ContractDecodeError(
+          "worldOffer.offerId",
+          "at most 100 offer ids a space, withdrawn ones included: set a withdrawn id again to reuse it",
+        );
       throw error;
     });
     return rows.map(worldOfferOf);
