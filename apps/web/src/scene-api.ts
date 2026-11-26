@@ -74,7 +74,9 @@ import {
   type ViewTraceQueryKey,
   viewTraceProjection,
   type WhyQueryKey,
+  WORLD_STATUS_REFRESH_MS,
   whyProjection,
+  worldStatusKeyPrefix,
   type ZoneMarksQueryKey,
 } from "./scene-queries.js";
 import { browserSceneSocket, type SceneSocketFactory } from "./socket.js";
@@ -1126,6 +1128,7 @@ export class SceneSession {
       });
       const json: unknown = await response.json().catch(() => undefined);
       const error = (json as { error?: unknown } | undefined)?.error;
+      if (error === "world_mode_refused") this.refreshWorldStatus();
       return {
         status: response.status,
         body: json,
@@ -1384,6 +1387,7 @@ export class SceneSession {
         if (receipt) return { kind: "receipt", status: 200, receipt };
         const error = (json as { error?: unknown } | undefined)?.error;
         if (error === "turn_interrupted") return { kind: "interrupted" };
+        if (error === "world_mode_refused") this.refreshWorldStatus();
         return {
           kind: "refused",
           status: response.status,
@@ -1527,6 +1531,7 @@ export class SceneSession {
       if (intent === this.intent && response.status === 401)
         this.refuseAuthorization(new ApiRefusal(401));
       const error = (json as { error?: unknown } | undefined)?.error;
+      if (error === "world_mode_refused") this.refreshWorldStatus();
       return {
         status: response.status,
         body: json,
@@ -1535,6 +1540,13 @@ export class SceneSession {
     } catch {
       return { status: 0, body: undefined, refused: "runtime unavailable" };
     }
+  }
+  /**
+   * A `world_mode_refused` answer means the world's mode changed, which writes no revision: the
+   * shown status is read again now rather than at the next interval.
+   */
+  refreshWorldStatus(): void {
+    void this.queries.invalidateQueries({ queryKey: worldStatusKeyPrefix });
   }
   private dropSelection(): void {
     this.select(undefined);
@@ -1818,6 +1830,7 @@ export class SceneSession {
       this.reselectView(following.objectId);
     }
   }
+  private statusTimer: ReturnType<typeof setInterval> | undefined;
   replace(credential: string | undefined, scope: BrowserScope | undefined, denied = false): void {
     const intent = ++this.intent;
     this.following = undefined;
@@ -1832,6 +1845,12 @@ export class SceneSession {
     this.resetView();
     this.resetViewed();
     this.dispatch({ type: "replace", intent, scope: credential ? scope : undefined, denied });
+    // A world mode writes no revision: while observing, the shown status is read again on a timer.
+    clearInterval(this.statusTimer);
+    this.statusTimer =
+      credential && scope
+        ? setInterval(() => this.refreshWorldStatus(), WORLD_STATUS_REFRESH_MS)
+        : undefined;
     if (credential && scope) void this.observe(intent, credential, scope);
   }
   private async observe(intent: number, credential: string, scope: BrowserScope): Promise<void> {

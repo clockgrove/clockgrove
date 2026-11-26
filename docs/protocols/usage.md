@@ -329,7 +329,9 @@ subscription lapses, and the world shows it with its reason:
 
 It answers `{ "mode": "restricted", "reason": "subscription_lapsed" }`. The reason is a code of 1 to
 64 `a-z`, `0-9` or `_`, or `null`; `active` takes none. It is a code, not text, because every
-observer of the world is shown it. A mode holds in the space it is set in, as a budget does. Setting
+observer of the world is shown it. A mode holds in the space it is set in, as a budget does: a
+member's authority is per space, so a mode set in one space never binds a space its setter holds no
+authority in, and a developer who restricts a whole world sets it in each of its spaces. Setting
 it needs `runtime:world-operate` beside the usage reader's `runtime:world-inspect` and
 `operator_evidence` ceiling: it restricts the world and sends nothing outside. Each change is
 audited as subject `world-mode`, the entry the mode.
@@ -340,9 +342,11 @@ audited as subject `world-mode`, the entry the mode.
   `paused` space it is refused before any budget or the hook, with cause `world_mode_restricted` or
   `world_mode_paused`, and it shows as every refusal of [admission](#admission-before-spend) does
   (the turn's `usage_refused` service outcome, its run step, its usage event with zero quantities).
-- In a `read_only` or `paused` space, Talk and a wake answer `409 world_mode_refused` before a
-  turn starts, as a mute does; a wake settles with that outcome. A turn accepted before the mode
-  finishes (in a `paused` space, its next model or tool call is refused).
+- In a `read_only` or `paused` space, Talk answers `409 world_mode_refused` before a turn starts,
+  as a mute does. A wake (scheduled, proactive or an operator's) starts no turn either, but it is
+  held, not lost: it stays pending, as a wake waiting on a busy conversation does, and runs at the
+  actor's first alarm once the space is `active` or `restricted` again. A turn accepted before the
+  mode finishes (in a `paused` space, its next model or tool call is refused).
 - In a `read_only` or `paused` space, a world command or Influence answers
   `409 { "error": "world_mode_refused", "mode": "read_only", "reason": "maintenance" }`. A replay of
   a command decided before is still answered.
@@ -352,11 +356,15 @@ audited as subject `world-mode`, the entry the mode.
 event and never moves the world's clock, so a replay never depends on it. `PauseWorld`,
 `ResumeWorld` and `SetClockPolicy` stay the owner's journaled clock controls and are admitted in
 every mode; a `paused` world stops actions and spend, not simulated time, and an owner who wants
-both also pauses its clock.
+both also pauses its clock. Pausing the clock is `runtime:world-clock`'s, which no other grant
+implies ([world commands](runtime-world-commands.md#authority-and-readiness)), so a mode set with
+`runtime:world-operate` cannot do it. The HUD names the mode "Play paused" beside the clock's own
+"Running" or "Paused", so the two are never confused.
 
 **How it is shown.** The world status read (`POST /v1/runtime/world-status`) carries
 `"mode": { "mode": …, "reason": … }` while the space is not `active`, and the scene's HUD names
-the mode and its reason beside the clock.
+the mode and its reason beside the clock. A mode writes no revision, so the browser reads the status
+again every 10 s while observing, and at once after a `world_mode_refused` answer.
 
 ## Not telemetry
 

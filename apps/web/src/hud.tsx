@@ -33,7 +33,7 @@ export function weatherText(scene: LivingScene): string {
 const MODE_LABELS: Readonly<Record<Exclude<WorldModeState["mode"], "active">, string>> = {
   restricted: "Restricted: characters make no model or tool calls",
   read_only: "Read-only: the world can be watched, not acted in",
-  paused: "Paused: no actions and no model or tool calls",
+  paused: "Play paused: no actions and no model or tool calls",
 };
 
 /** The world's mode, set by its developer, and the reason they gave, its `_` read as spaces. */

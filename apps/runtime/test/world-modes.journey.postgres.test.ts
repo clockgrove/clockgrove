@@ -60,6 +60,32 @@ it.skipIf(!isNativeWorldOwnerChild())(
       ).sessionId;
       const talk = (messageId: string) =>
         post("/v1/runtime/talk", { sessionId: session, messageId, text: "Hello." });
+      const activation = (op: string, fields: object) =>
+        owner.request(`/v1/runtime/activations/${op}`, {
+          version: 1,
+          scope: owner.scope,
+          actorId: "fixture.keeper",
+          ...fields,
+        });
+      const wake = async () =>
+        (
+          await activation("wake", {
+            wake: {
+              configurationId: "pulse",
+              causalRoot: "pulse-root",
+              reason: { kind: "heartbeat", heartbeatId: "pulse" },
+              evidence: "evidence:pulse-root",
+            },
+          })
+        ).body as { activationId: string; status: string; outcome: string | null };
+      const clock = async (key: string, type: "PauseWorld") =>
+        (
+          await owner.submit({
+            ...advanceCommand(owner.world, key, 0n, null),
+            type,
+            payload: { schemaVersion: 1 },
+          })
+        ).status;
       let commands = 0;
       const command = async () => {
         commands += 1;
@@ -119,17 +145,59 @@ it.skipIf(!isNativeWorldOwnerChild())(
         body: { error: "world_mode_refused", mode: "read_only", reason: "maintenance" },
       });
 
-      // Paused: shown, and refused the same way.
+      expect(
+        await post("/v1/runtime/influence", {
+          intentId: "mode-offer",
+          objectId: "fixture.snack-dish",
+          resourceKind: "food",
+          expectedRevision: "0",
+        }),
+      ).toMatchObject({
+        status: 409,
+        body: { error: "world_mode_refused", mode: "read_only", reason: "maintenance" },
+      });
+
+      // Paused: shown, and refused the same way; the owner's clock controls are still admitted.
       expect((await setMode("paused", null)).status).toBe(200);
       expect((await status()).mode).toEqual({ mode: "paused", reason: null });
       expect((await talk("m3")).status).toBe(409);
       expect((await command()).status).toBe(409);
+      expect([await clock("mode-pause", "PauseWorld"), (await status()).clock.runState]).toEqual([
+        200,
+        "paused",
+      ]);
+      // A wake due while paused starts no turn and is held, not lost.
+      expect(
+        (
+          await activation("configure", {
+            configuration: {
+              id: "pulse",
+              sessionId: session,
+              kind: "heartbeat",
+              nextWakeAt: null,
+              intervalMs: null,
+              input: "Consider the changed world",
+              priority: 1,
+              enabled: true,
+              compiledRoutine: "escalate",
+            },
+            policy: { allowModel: true, modelBudget: 10 },
+          })
+        ).status,
+      ).toBe(200);
+      const held = await wake();
+      expect(held.status).toBe("pending");
 
-      // Active again: nothing shown, and the model answers.
+      // Active again: nothing shown, the model answers and the held wake runs.
       expect((await setMode("active", null)).body).toEqual({ mode: "active", reason: null });
       expect((await status()).mode).toBeUndefined();
       expect((await command()).status).toBe(200);
       expect(decodeTalkReceipt((await talk("m4")).body).reply.serviceOutcome).toBeUndefined();
+      expect(await wake()).toMatchObject({
+        activationId: held.activationId,
+        status: "completed",
+        outcome: "completed",
+      });
       expect(
         await owner.sql(
           `SELECT string_agg(entry_id, ',' ORDER BY accessed_at) FROM clockgrove.inspector_accesses

@@ -242,9 +242,18 @@ export type StatusQueryKey = readonly [
   BrowserScope | undefined,
   string | undefined,
 ];
+/** Every world-status query's key prefix: a `world_mode_refused` answer refetches them all. */
+export const worldStatusKeyPrefix = ["living-scene", "status"] as const;
 /**
- * The observed space's world status, read again for each committed revision the shell shows. The
- * previous answer stays visible during a refetch only within the same observation and scope.
+ * How often an observing session reads the shown status again without a new revision. A world
+ * mode (0085) writes no journal event and so no revision: a mode set while nothing commits, or
+ * `active` again after a `paused` world, is shown within this interval.
+ */
+export const WORLD_STATUS_REFRESH_MS = 10_000;
+/**
+ * The observed space's world status, read again for each committed revision the shell shows, and
+ * by the session on an interval and after a `world_mode_refused` answer. The previous answer stays
+ * visible during a refetch only within the same observation and scope.
  */
 export function useWorldStatusQuery(
   session: SceneSession,

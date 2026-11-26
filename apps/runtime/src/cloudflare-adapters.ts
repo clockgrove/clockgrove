@@ -1540,8 +1540,8 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
           false,
         )
         .catch((error: unknown) => {
-          // A muted actor or conversation, or a read-only or paused world, starts no turn: the
-          // wake settles with that refusal.
+          // A muted actor or conversation starts no turn: the wake settles with that refusal. A
+          // read-only or paused world (0085) starts none either, but the wake is held, not lost.
           if (
             error instanceof ConversationRefusedError &&
             (error.code === "conversation_muted" || error.code === "world_mode_refused")
@@ -1549,8 +1549,13 @@ export class ActorAgentDO extends Agent<RuntimeEnvironment> {
             return { refused: error.code, receipt: undefined };
           throw error;
         });
-      // A durable approval/tool wait is unfinished work; its alarm must retain admission.
-      if (result.receipt === undefined && result.refused === "conversation_busy") return admitted;
+      // A durable approval/tool wait is unfinished work; its alarm must retain admission. So is a
+      // wake a world mode holds: it stays pending and runs at the first alarm once the mode allows.
+      if (
+        result.receipt === undefined &&
+        (result.refused === "conversation_busy" || result.refused === "world_mode_refused")
+      )
+        return admitted;
       if (result.receipt !== undefined && admitted.delivery !== undefined)
         await withActivations(this.environment, (store) =>
           store.deliver(address, admitted.activationId),
