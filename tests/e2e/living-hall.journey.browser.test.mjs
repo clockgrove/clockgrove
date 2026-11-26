@@ -3028,20 +3028,25 @@ const observeHall = async (backend) => {
         );
         // Issue 457: patchApplicationMs is the draw of a committed patch. The animating viewer has
         // drawn no commit since it booted, so its slowest-draw record held only its boot redraw
-        // once the atlas loaded, made while the other viewers boot. It is cleared, one command is
-        // committed (the rain the hall already shows), and read once the viewer has drawn it.
-        await kin.viewer.evaluate(() => {
-          globalThis.hallAdapter.metrics.patchMs = 0;
-        });
-        await commit({
-          ...weather,
-          commandId: "browser-budget-patch",
-          payload: { schemaVersion: 2, rainIntensity: Number(golden.weather.rainIntensity) },
-        });
-        const patchedRevision = (await durable()).split("|")[0];
-        await expect
-          .poll(() => kin.viewer.evaluate(() => globalThis.hallDrawnRevision))
-          .toBe(patchedRevision);
+        // once the atlas loaded, made while the other viewers boot. For each of 9 draws the record
+        // is cleared, one command is committed (the rain the hall already shows), and the record is
+        // read once the viewer has drawn that revision.
+        const patchDraws = [];
+        for (let draw = 0; draw < 9; draw += 1) {
+          await kin.viewer.evaluate(() => {
+            globalThis.hallAdapter.metrics.patchMs = 0;
+          });
+          await commit({
+            ...weather,
+            commandId: `browser-budget-patch-${draw}`,
+            payload: { schemaVersion: 2, rainIntensity: Number(golden.weather.rainIntensity) },
+          });
+          const patchedRevision = (await durable()).split("|")[0];
+          await expect
+            .poll(() => kin.viewer.evaluate(() => globalThis.hallDrawnRevision))
+            .toBe(patchedRevision);
+          patchDraws.push(await kin.viewer.evaluate(() => globalThis.hallAdapter.metrics.patchMs));
+        }
         // Frame time is sampled over this settled window on the animating viewer, so the golden
         // hall's boot in the touch viewer does not count towards it. The window is one full
         // 120-frame sample (FRAME_SAMPLES), however long the runner takes to draw it.
@@ -3189,20 +3194,29 @@ const observeHall = async (backend) => {
           firstSceneRenderMs: runtime.firstRenderMs,
           frameTimeMs: frames[Math.floor(frames.length * 0.95)],
           entityCount: runtime.entityCount,
-          patchApplicationMs: runtime.patchMs,
+          // Issue 457: a median, because a single wall-clock sample measures scheduler noise on CI.
+          // One sub-millisecond draw on two shared cores is sometimes descheduled past 8 ms; the
+          // median of 9 committed patch draws still fails when the draw itself passes the budget.
+          patchApplicationMs: [...patchDraws].sort((a, b) => a - b)[4],
           reconnectMs,
         };
         process.stdout.write(
-          `scene runtime budgets measured: ${JSON.stringify({ backend: state.backend, ...measured })}\n`,
+          `scene runtime budgets measured: ${JSON.stringify({ backend: state.backend, ...measured, patchDraws })}\n`,
         );
-        // The committed patch was drawn as a patch, not a rebuild, so its draw is what is measured.
-        expect([runtime.entityCount, frames.length > 0, runtime.patchMs > 0]).toEqual([
-          placed.length,
-          true,
-          true,
-        ]);
+        // Every committed patch was drawn as a patch, not a rebuild, so its draw is what is measured.
+        expect([
+          runtime.entityCount,
+          frames.length > 0,
+          patchDraws.length,
+          patchDraws.every((value) => value > 0),
+        ]).toEqual([placed.length, true, 9, true]);
         for (const [name, value] of Object.entries(measured))
-          expect([name, value <= budgets[name].limit]).toEqual([name, true]);
+          expect(
+            [name, value <= budgets[name].limit],
+            name === "patchApplicationMs"
+              ? `patchApplicationMs median of ${JSON.stringify(patchDraws)}`
+              : undefined,
+          ).toEqual([name, true]);
         // Wheel zoom stops at its bounds and dragging never pans the view out of its bounds.
         const mouse = kin.viewer;
         const camera = () =>
