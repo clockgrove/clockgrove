@@ -15,6 +15,8 @@ import type {
   UsageWebhookRequest,
   WorldModeRequest,
   WorldModeState,
+  WorldOfferList,
+  WorldOfferRequest,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
 import {
@@ -51,6 +53,7 @@ export const USAGE_ROUTES = [
   "/v1/runtime/usage/budget",
   "/v1/runtime/usage/admission-hook",
   "/v1/runtime/world-mode",
+  "/v1/runtime/offers",
 ] as const;
 
 /** Setting a budget restricts spend and sends nothing out, so it needs the operator's grant. */
@@ -148,6 +151,22 @@ export class PostgreSqlUsageInspector {
         reason: input.reason,
       }),
     );
+  }
+
+  /**
+   * Sets or withdraws one offer of the space (`world-offer` audit, the entry the offer's ID). It
+   * shows the developer's text in the world and sends nothing outside, so it needs the operator's
+   * grant beside the reader's, as a mode.
+   */
+  async setOffer(
+    input: WorldOfferRequest,
+    context: TrustedExecutionContext,
+  ): Promise<WorldOfferList> {
+    const target: AuditTarget = { subject: "world-offer", entryId: input.offerId };
+    const authorization = await this.admitted(input, context, [INSPECT_GRANT, OPERATE_GRANT]);
+    return this.refusedAsDenied(input, authorization, target, async () => ({
+      offers: await this.admission.setOffer(authorization, input),
+    }));
   }
 
   /**
@@ -253,7 +272,12 @@ export class PostgreSqlUsageInspector {
 type AuditTarget =
   | { readonly subject: "usage-events" }
   | {
-      readonly subject: "usage-webhook" | "usage-budget" | "usage-admission-hook" | "world-mode";
+      readonly subject:
+        | "usage-webhook"
+        | "usage-budget"
+        | "usage-admission-hook"
+        | "world-mode"
+        | "world-offer";
       readonly entryId: string;
     };
 

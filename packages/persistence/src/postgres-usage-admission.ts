@@ -2,7 +2,14 @@ import {
   InspectorRateLimitedError,
   type RuntimeAuthorizationContext,
 } from "@clockgrove/application";
-import type { BrowserScope, UsageBudget, WorldModeState } from "@clockgrove/contracts";
+import {
+  type BrowserScope,
+  ContractDecodeError,
+  type UsageBudget,
+  type WorldModeState,
+  type WorldOffer,
+  type WorldOfferRequest,
+} from "@clockgrove/contracts";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
 
 type Row = Record<string, unknown>;
@@ -105,6 +112,44 @@ export class PostgreSqlUsageAdmission {
     };
   }
 
+  /**
+   * Sets or (with `offer: null`) withdraws one offer of the space (0086), audited as `world-offer`
+   * with the offer's ID, and answers the space's offers. A space holds at most 100.
+   */
+  async setOffer(
+    authorization: RuntimeAuthorizationContext,
+    request: WorldOfferRequest,
+  ): Promise<WorldOffer[]> {
+    const { scope, offerId, offer } = request;
+    const rows = await this.within(authorization, async (query) => {
+      const found = await query(
+        "SELECT * FROM clockgrove.set_world_offer($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        [
+          scope.tenantId,
+          scope.worldId,
+          scope.timelineId,
+          scope.spaceId,
+          offerId,
+          offer?.actorId ?? null,
+          offer?.title ?? null,
+          offer?.text ?? null,
+          offer?.checkoutUrl ?? null,
+          offer === null,
+        ],
+      );
+      await query(
+        "SELECT clockgrove.record_inspector_access($1, $2, $3, NULL, 'allow', 'served', 'world-offer', $4)",
+        [scope.worldId, scope.timelineId, scope.spaceId, offerId],
+      );
+      return found;
+    }).catch((error: unknown) => {
+      if ((error as { code?: unknown }).code === "54000")
+        throw new ContractDecodeError("worldOffer.offerId", "at most 100 offers a space");
+      throw error;
+    });
+    return rows.map(worldOfferOf);
+  }
+
   private within(
     authorization: RuntimeAuthorizationContext,
     operation: (
@@ -118,4 +163,15 @@ export class PostgreSqlUsageAdmission {
       throw error;
     });
   }
+}
+
+/** An offer row of `space_offers`, `show_offers` or `choose_offer`. */
+export function worldOfferOf(row: Row): WorldOffer {
+  return {
+    offerId: String(row.offer_id),
+    actorId: String(row.actor_id),
+    title: String(row.title),
+    text: String(row.body),
+    checkoutUrl: row.checkout_url === null ? null : String(row.checkout_url),
+  };
 }

@@ -14,6 +14,8 @@ import {
   decodeConversationReadRequest,
   decodeConversationTitleRequest,
   decodeCreateConversationRequest,
+  decodeOfferChooseRequest,
+  decodeOfferShowRequest,
   decodeTalkRequest,
   decodeTalkStreamFrame,
   decodeTurnRequest,
@@ -37,6 +39,8 @@ export const CONVERSATION_ROUTES = [
   "/v1/runtime/talk",
   "/v1/runtime/turns/status",
   "/v1/runtime/turns/cancel",
+  "/v1/runtime/conversations/offers",
+  "/v1/runtime/conversations/offers/choose",
 ] as const;
 export type ConversationRoute = (typeof CONVERSATION_ROUTES)[number];
 
@@ -192,6 +196,22 @@ export function conversationCall(route: ConversationRoute, body: unknown): Conve
           store.title(participant, input.scope, input.sessionId, input.title),
       };
     }
+    // Offers (issue 329): the session's actor's offers, shown and chosen by its participant. No
+    // world mode refuses them; they spend nothing.
+    case "/v1/runtime/conversations/offers": {
+      const input = decodeOfferShowRequest(body);
+      return {
+        scope: input.scope,
+        run: (store, participant) => store.showOffers(participant, input),
+      };
+    }
+    case "/v1/runtime/conversations/offers/choose": {
+      const input = decodeOfferChooseRequest(body);
+      return {
+        scope: input.scope,
+        run: (store, participant) => store.chooseOffer(participant, input),
+      };
+    }
     case "/v1/runtime/conversations/archive": {
       const input = decodeConversationArchiveRequest(body);
       return {
@@ -257,6 +277,7 @@ export const CONVERSATION_REFUSAL_STATUS: Readonly<
   turn_cancelled: 409,
   conversation_muted: 409,
   world_mode_refused: 409,
+  offer_not_available: 409,
 };
 
 /** NDJSON framing of a streamed Talk: one frame per line. */

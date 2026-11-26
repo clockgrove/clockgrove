@@ -4,6 +4,10 @@ import type {
   ConversationSession,
   ConversationTranscript,
   ObjectId,
+  OfferChoice,
+  OfferChooseRequest,
+  OfferList,
+  OfferShowRequest,
   SourceIdentityAssertion,
   TalkReceipt,
   TalkRequest,
@@ -193,6 +197,16 @@ export interface ConversationStore {
     scope: BrowserScope,
     sessionId: string,
   ): Promise<void>;
+  /**
+   * The offers the session's actor presents (issue 329, `docs/protocols/usage.md`, "Offers"),
+   * shown to the participant: each is recorded as shown in the session once.
+   */
+  showOffers(participant: ConversationParticipant, request: OfferShowRequest): Promise<OfferList>;
+  /** Records the participant's choice of an offer shown in the session, once. */
+  chooseOffer(
+    participant: ConversationParticipant,
+    request: OfferChooseRequest,
+  ): Promise<OfferChoice>;
   /**
    * Accepts a Caretaker message as a turn (Wave 5 §7): its stored receipt when it already
    * committed, or its fiber, new or the one an earlier delivery of the same message accepted.
@@ -384,7 +398,9 @@ export type ConversationRefusalCode =
   /** An operator muted the actor or this conversation: no turn starts (issue 374, G8). */
   | "conversation_muted"
   /** The world's mode is `read_only` or `paused`: no turn starts (issue 329, 0085). */
-  | "world_mode_refused";
+  | "world_mode_refused"
+  /** The offer was not shown in this session, or was withdrawn since (issue 329, 0086). */
+  | "offer_not_available";
 
 /** A refused conversation call; nothing was changed. */
 export class ConversationRefusedError extends Error {
