@@ -1,6 +1,6 @@
 # Usage events
 
-Issue 329, parts 1 to 4. A developer who deploys a world bills their own players from what the world
+Issue 329, parts 1 to 6. A developer who deploys a world bills their own players from what the world
 reports it used. Clockgrove reports usage; it never handles money. No price, rate card, cost,
 currency, balance, payment provider, wallet or account is part of a usage event or of the engine
 (owner's decision, 2026-11-15: "still just events and hooks. Never dealing with real money or
@@ -19,23 +19,26 @@ row proving the use commits; no role, the runtime's included, may insert, update
 | `delivery`   | a delivery's sink records its receipt                             | `delivery_sink_receipts` |
 | `model_call` | a wake-triage decision outside any run is finished                | `wake_triage`      |
 | `model_call` | a moderation-shadow decision outside any run is finished          | `moderation_shadow` |
+| `model_call` | an actor-reply shadow judges a committed reply (when `ACTOR_REPLY_SHADOW_CONFIG` is bound) | `actor_reply_shadow` |
+| `offer_shown` | a developer's offer is first shown in a conversation session      | `offer_presentation` |
+| `offer_chosen` | the session's player chooses that offer                          | `offer_presentation` |
 
 A remote MCP call is an effect in the effect ledger, and every effect the runtime records belongs
 to a run: it is counted once, by that run's `tool_execution` step.
 
-Not yet a source: the actor-reply shadow (a moderation judgement of a committed reply, made when
-`ACTOR_REPLY_SHADOW_CONFIG` is bound) keeps no durable record, only a contentless log line, so its
-model call is not a usage event until it does.
+The actor-reply shadow keeps one durable, contentless record per judged reply (0087): opaque ids,
+closed codes and numbers, never the reply's text. Its model call is a usage event from that record,
+as a moderation shadow's is.
 
 ## Shape
 
 | Field         | Meaning                                                                                   |
 | ------------- | ----------------------------------------------------------------------------------------- |
-| `eventId`     | Stable identity from the source row's key: `run_step:<runId>:<step>`, `delivery:<sha256>`, or `wake_triage:<sha256>` / `moderation_shadow:<sha256>` of the turn's `[sessionId, messageId]`. |
+| `eventId`     | Stable identity from the source row's key: `run_step:<runId>:<step>`, `delivery:<sha256>`, or `wake_triage:<sha256>` / `moderation_shadow:<sha256>` / `actor_reply_shadow:<sha256>` of the turn's `[sessionId, messageId]`, or `offer_shown:<sha256>` / `offer_chosen:<sha256>` of `[sessionId, offerId]`. |
 | `sequence`    | The feed order, a decimal string. Within a timeline it is taken in commit order, so a reader paging by it never passes an event that commits later. |
 | `worldId`, `timelineId`, `spaceId` | The world it was used in.                                            |
-| `category`    | `model_call`, `tool_call` or `delivery`.                                                  |
-| `source`      | `run_step`, `delivery_receipt`, `wake_triage` or `moderation_shadow`: the durable record it came from. |
+| `category`    | `model_call`, `tool_call`, `delivery`, `offer_shown` or `offer_chosen`.                   |
+| `source`      | `run_step`, `delivery_receipt`, `wake_triage`, `moderation_shadow`, `actor_reply_shadow` or `offer_presentation`: the durable record it came from. |
 | `resource`    | The model, the capability or the delivery sink.                                           |
 | `status`, `outcomeCode` | The source's terminal disposition, so a failed or refused call is visible. A tool call refused before dispatch or simulated reads `refused` or `simulated`. |
 | `principalId` | The player the use is for: the run's initiating principal or the delivery's recipient.    |
@@ -51,7 +54,7 @@ Quantities:
   `reasoningTokens` and `calls`, summed over every route attempt of the call (a fallback route's
   attempt counts). An attempt that never reached a provider (breaker open, credential missing)
   counts nothing, and an attempt that committed a checkpointed answer again counts no call.
-  A wake-triage or moderation-shadow decision counts what its record's `usage` holds, carried from
+  A wake-triage, moderation-shadow or actor-reply-shadow decision counts what its record's `usage` holds, carried from
   the gateway's decision record: `calls` 1 when the call was sent to the provider, with the input
   and output tokens it reported (`null` when it reported none); `calls` 0 with every token count 0
   when nothing was sent (over budget, no model configured, or the gateway refused before the
@@ -68,6 +71,8 @@ Quantities:
 - `tool_call`: `calls`: 1 for a tool the engine dispatched; 0 for one it refused before dispatch or
   only simulated.
 - `delivery`: `deliveries` (1).
+- `offer_shown`, `offer_chosen`: `offers` (1). Not spend: no budget counts them; they are the
+  commerce events of [Offers](#offers).
 
 **Unknown stays unknown.** A quantity is `null` when the engine does not know it: a provider that
 did not report a token type, an attempt that billed without reporting usage, or a model step that
@@ -260,8 +265,9 @@ event's real quantities and the reservation of the event's own source goes (capt
 event never releases the turn's call. A refused or failed call's event captures what it used, often
 nothing. A reservation never captured (an owner that died mid-call) lapses after 300 s, the
 recovery cron's cadence. A `calls` budget counts the tally, every other reservation held in its
-scope and the call asked for, so concurrent calls never pass it. The actor-reply shadow writes no
-usage event, so it is asked and reserves nothing. Tokens are known only
+scope and the call asked for, so concurrent calls never pass it. The actor-reply shadow is asked and
+reserves nothing (it runs after the reply, beside no later call of its turn); its usage event,
+written from its durable record (0087), still adds its quantities to every budgeted tally. Tokens are known only
 after a call, so a token budget admits while its tally is below the limit, and the call it admits
 may pass it.
 
@@ -427,6 +433,63 @@ It answers `200` with the receipt
   developer's outside bookkeeping, as clock controls are exempt, so a refund is recorded while play
   is paused.
 
+## Offers
+
+Issue 329, part 6. The developer defines in-world offers (a shop, a character suggesting an
+upgrade); the world shows them, records when one is shown and when one is chosen, and the developer
+receives both as usage events. Checkout stays the developer's: no price, currency, balance or
+payment account is part of an offer.
+
+`POST /v1/runtime/offers` sets one offer of a space, or withdraws it with `"offer": null`:
+
+```json
+{ "version": 1, "tenantId": "…", "worldId": "…", "timelineId": "…", "spaceId": "…",
+  "offerId": "lantern",
+  "offer": { "actorId": "fixture.keeper", "title": "Lantern upgrade",
+    "text": "A brighter lantern for the hall.",
+    "checkoutUrl": "https://shop.example/checkout?item=lantern" } }
+```
+
+It answers the space's offers that are not withdrawn, `{ "offers": [ { "offerId", "actorId",
+"title", "text", "checkoutUrl" } ] }`, in `offerId` order.
+
+- **The offer.** `offerId` is the developer's id (1 to 128 of `A-Z`, `a-z`, `0-9`, `.`, `_`, `:`
+  or `-`); `actorId` the actor that presents it, a character or an object standing for a shop;
+  `title` 1 to 80 characters and `text` at most 280 (decision: a card's line and a short paragraph),
+  plain text shown to every player who talks to that actor, so a price, when shown, is the
+  developer's own words; `checkoutUrl` an `https` URL to a public host name, or `null`. A space
+  holds at most 100 offer ids (decision, a page); setting one again replaces it, and a withdrawn
+  offer keeps its id and its past events, so its id still counts toward the 100: set a withdrawn id
+  again to reuse it rather than rotate to a new one. A 101st id is refused with
+  a decode error on `worldOffer.offerId`. An offer naming an actor the space does not have is never shown.
+- **Authority.** Setting an offer needs `runtime:world-purchase` beside the reader's
+  `runtime:world-inspect` and `operator_evidence` ceiling, as a [purchase](#purchase-grants) does:
+  an offer puts the developer's commerce and a link to a checkout host the caller names in front of
+  every player who talks to its actor. A world's owner holds `runtime:world-purchase` by default
+  and may delegate it; `runtime:world-operate` never implies it, and an actor or system identity
+  never qualifies. No new grant. Each change is audited as subject `world-offer`, the entry the
+  offer's id.
+- **Shown.** In a player's conversation with the presenting actor, the world asks
+  `POST /v1/runtime/conversations/offers` (`{ …scope, "sessionId" }`, the session's participant,
+  under the [conversation routes](conversations.openapi.json)' authority) and lists the actor's
+  offers that are not withdrawn, each with `chosen`. The first time an offer is shown in a session
+  the engine records it, and that record is the `offer_shown` event; showing it again records
+  nothing new.
+- **Chosen.** `POST /v1/runtime/conversations/offers/choose` (`{ …scope, "sessionId", "offerId" }`)
+  records the player's choice of an offer shown in that session and not withdrawn since, once: the
+  `offer_chosen` event. It answers `{ "offer", "eventId" }`, the same `eventId` again on a repeat;
+  any other offer is `409 offer_not_available`.
+- **Checkout.** After a choice the conversation links to `checkoutUrl` with `clockgrove_choice`
+  set to the `offer_chosen` event's `eventId`, opened in a new tab without a referrer; the
+  developer matches the visit to the event they receive. The engine never calls the URL. Once the
+  developer's checkout completes, their server grants the item ([purchase grants](#purchase-grants)).
+- **Events.** Both are usage events from the presentation's durable record, attributed to the
+  session's player and persona, the presenting actor and the session (`runId` `null`), with
+  `resource` the offer's id and `quantities` `{ "offers": 1 }`. They reach the developer through the
+  [query](#query), the [feed](#feed) and the [webhooks](#webhooks) with every other event.
+- **Modes.** No [world mode](#world-modes) refuses showing or choosing an offer: they spend
+  nothing, and they are the developer's way back to play from a `restricted` or `paused` world.
+
 ## Not telemetry
 
 Usage events are the billing record. OpenTelemetry spans, logs and metrics are observability for
@@ -436,7 +499,8 @@ the usage path reads telemetry, and telemetry is never reconciled against usage.
 ## Retention
 
 One immutable row per ended model or tool step, per delivery receipt and per finished shadow
-decision, kept for the world's life; one webhook row per registrar and space; at most 24 budgets
+decision (wake triage, moderation, actor reply), kept for the world's life; one webhook row per registrar and space; at most 24 budgets
 and one admission hook per space, and a budget tally per world, budgeted scope, subject and day, kept
 for the world's life; one reservation per session, category and asking source, gone when captured; one mode per space,
-updated in place (`db/retention.json`).
+updated in place; at most 100 offer ids per space (withdrawn ones included) and one presentation per session and offer, kept
+for the world's life (`db/retention.json`).

@@ -1,4 +1,5 @@
 import {
+  type ActorReplyShadowRecord,
   type ConversationParticipant,
   type ModerationShadowObservation,
   type ModerationShadowRecord,
@@ -75,6 +76,28 @@ export class PostgreSqlModerationShadow {
         return { sessionId: row.session_id, messageId: row.message_id, record: row.record };
       });
       return moderationShadowReport(observations);
+    });
+  }
+}
+
+/**
+ * The actor-reply shadow's durable record (issue 329, 0087): one contentless record per judged
+ * reply, written as the turn's participant, whose commit writes that model call's usage event.
+ */
+export class PostgreSqlActorReplyShadow {
+  constructor(private readonly client: PostgreSqlClient) {}
+  record(
+    participant: ConversationParticipant,
+    fiber: TurnFiber,
+    record: ActorReplyShadowRecord,
+  ): Promise<void> {
+    return withClientTransaction(this.client, { authorization: participant }, async () => {
+      await this.client.query("SELECT clockgrove.record_actor_reply_shadow($1,$2,$3,$4::jsonb)", [
+        fiber.scope.tenantId,
+        fiber.sessionId,
+        fiber.messageId,
+        JSON.stringify(record),
+      ]);
     });
   }
 }

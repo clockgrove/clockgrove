@@ -145,6 +145,9 @@ INSERT INTO attack_surface (schema_name, table_name, runtime_privilege) VALUES
   ('clockgrove', 'usage_reservations', 'none'),
   ('clockgrove', 'usage_admission_hooks', 'none'),
   ('clockgrove', 'world_modes', 'none'),
+  ('clockgrove', 'world_offers', 'none'),
+  ('clockgrove', 'offer_presentations', 'none'),
+  ('clockgrove', 'actor_reply_shadow', 'none'),
   ('clockgrove', 'moderation_shadow', 'participant_read'),
   ('clockgrove', 'actor_processes', 'process'),
   ('clockgrove', 'actor_process_segments', 'process'),
@@ -309,7 +312,8 @@ BEGIN
         'clockgrove.wake_triage', 'clockgrove.mcp_installations', 'clockgrove.mcp_bindings', 'clockgrove.moderation_shadow',
         'clockgrove.usage_events', 'clockgrove.actor_mutes', 'clockgrove.actor_mute_changes',
         'clockgrove.usage_webhooks', 'clockgrove.usage_budgets', 'clockgrove.usage_tallies',
-        'clockgrove.usage_reservations', 'clockgrove.usage_admission_hooks', 'clockgrove.world_modes'
+        'clockgrove.usage_reservations', 'clockgrove.usage_admission_hooks', 'clockgrove.world_modes',
+        'clockgrove.world_offers', 'clockgrove.offer_presentations', 'clockgrove.actor_reply_shadow'
       ) THEN 0 ELSE 1 END;
       IF own_rows <> expected_rows THEN
         RAISE EXCEPTION 'hostile tenant context saw % rows in %', own_rows, table_name;
@@ -2978,6 +2982,45 @@ BEGIN
   IF EXISTS (SELECT 1 FROM clockgrove.world_mode('tenant-b', 'world-b', 'timeline-b', 'space-b')) THEN
     RAISE EXCEPTION 'another tenant read a world mode' USING ERRCODE = 'XX999';
   END IF;
+END
+$$;
+ROLLBACK;
+
+-- Offers (0086): both tables are reachable only through their definer functions; a member without
+-- `runtime:world-purchase` (or the owner role) cannot set an offer, and no one shows or chooses an offer in a session
+-- they are not a participant of.
+BEGIN;
+SELECT pg_temp.act_as('tenant-a', 'principal-a', '{"version":1,"allowedCategories":["public_scene","operator_evidence","conversation"]}');
+DO $$
+DECLARE
+  statement text;
+BEGIN
+  FOREACH statement IN ARRAY ARRAY[
+    'SELECT count(*) FROM clockgrove.world_offers',
+    'SELECT count(*) FROM clockgrove.offer_presentations',
+    'INSERT INTO clockgrove.world_offers (tenant_id, world_id, timeline_id, space_id, offer_id, actor_id, title, body, principal_id) VALUES (''tenant-a'', ''world-a'', ''timeline-a'', ''space-a'', ''o'', ''a'', ''t'', '''', ''principal-a'')',
+    'UPDATE clockgrove.offer_presentations SET chosen_at = now()',
+    'DELETE FROM clockgrove.world_offers',
+    'SELECT * FROM clockgrove.space_offers(''tenant-a'', ''world-a'', ''timeline-a'', ''space-a'')'
+  ] LOOP
+    BEGIN
+      EXECUTE statement;
+      RAISE EXCEPTION 'offers reached directly: %', statement USING ERRCODE = 'XX999';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  END LOOP;
+  BEGIN
+    PERFORM clockgrove.set_world_offer('tenant-a', 'world-a', 'timeline-a', 'space-a', 'upgrade',
+      'actor-a', 'Upgrade', '', NULL, false);
+    RAISE EXCEPTION 'a member without the grants set an offer' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN
+    PERFORM clockgrove.show_offers('tenant-b', 'world-b', 'timeline-b', 'no-such-session');
+    RAISE EXCEPTION 'a stranger was shown offers' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN
+    PERFORM clockgrove.choose_offer('tenant-a', 'world-a', 'timeline-a', 'no-such-session', 'upgrade');
+    RAISE EXCEPTION 'a stranger chose an offer' USING ERRCODE = 'XX999';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END
 $$;
 ROLLBACK;

@@ -1265,6 +1265,249 @@
           }
         }
       }
+    },
+    "/v1/runtime/conversations/offers": {
+      "post": {
+        "summary": "Show the session actor's offers",
+        "description": "The offers the developer defined for the session's actor (issue 329, docs/protocols/usage.md, \"Offers\"). Each is recorded as shown in the session once, its `offer_shown` usage event. No world mode refuses it.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId",
+                  "sessionId"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runtime/conversations/offers/choose": {
+      "post": {
+        "summary": "Choose an offer",
+        "description": "Records the participant's choice of an offer shown in the session, once, its `offer_chosen` usage event. `409 offer_not_available` when it was not shown in the session or was withdrawn since. Checkout stays the developer's: the answer's `checkoutUrl` is linked with `clockgrove_choice` set to `eventId`.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "tenantId",
+                  "worldId",
+                  "timelineId",
+                  "spaceId",
+                  "sessionId",
+                  "offerId"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "worldId": {
+                    "type": "string"
+                  },
+                  "timelineId": {
+                    "type": "string"
+                  },
+                  "spaceId": {
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "offerId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferChoice"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused: `{\"error\": code}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1473,7 +1716,9 @@
           },
           "toolCallsRecorded": {
             "type": "boolean",
-            "enum": [true],
+            "enum": [
+              true
+            ],
             "description": "Present on an actor reply whose turn recorded at least one tool call."
           }
         }
@@ -1980,6 +2225,79 @@
           },
           "authorityMode": {
             "const": "member"
+          }
+        }
+      },
+      "ShownOffer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "offerId",
+          "actorId",
+          "title",
+          "text",
+          "checkoutUrl",
+          "chosen"
+        ],
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          },
+          "actorId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 280
+          },
+          "checkoutUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An https URL to a public host name, or null."
+          },
+          "chosen": {
+            "type": "boolean"
+          }
+        }
+      },
+      "OfferList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "offers"
+        ],
+        "properties": {
+          "offers": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ShownOffer"
+            }
+          }
+        }
+      },
+      "OfferChoice": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "offer",
+          "eventId"
+        ],
+        "properties": {
+          "offer": {
+            "$ref": "#/components/schemas/ShownOffer"
+          },
+          "eventId": {
+            "type": "string",
+            "pattern": "^offer_chosen:[0-9a-f]{64}$"
           }
         }
       }

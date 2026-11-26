@@ -48,7 +48,8 @@ export type InspectorAccess = {
         | "usage-webhook"
         | "usage-budget"
         | "usage-admission-hook"
-        | "world-mode";
+        | "world-mode"
+        | "world-offer";
       readonly commandId?: undefined;
       readonly entryId: string;
     }

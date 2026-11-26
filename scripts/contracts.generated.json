@@ -24,13 +24,15 @@
 
     "ids.ts": "9169d66a2fc1c396180a72952d25243c15134e5225d0821a453a04c51a5c4559",
 
-    "index.ts": "b347a45b3a3435ab1b241addabd90888fc56cab7e9b4bec84e77c784ef106fe6",
+    "index.ts": "36d407f869bf6386c36623ecdeb8ffe18ff5674d1c7489db441d2e712159d323",
 
     "journal-records.ts": "025e8d7cbd49e52ebc86774612437350b31e78c8868bc035c9138cfa9d1dd9c7",
 
     "material.ts": "2840d7a6d9b4f5b09fd55d6ca7f06f6a06fdbf78260e9cc825b69dd3dab3cab6",
 
     "model-asset.ts": "daabc42f23cfe7fe48cea5ae066f90519d480bbb6976b077a93af7d9cf063652",
+
+    "offers.ts": "e5ea4b0cb165121d91ae9d7530465391b9afaefc560322668d3d2bcf74f165dd",
 
     "privacy.ts": "eee0e6d1cc4846816e590b3d4a59c46e35909831e303249b54c326e7b9bd9c28",
 
@@ -60,11 +62,11 @@
 
     "usage-admission.ts": "d16ffa61a154e46ac39149c00e0dd77c66af0a485b9b55256f6bc0fc59e77fed",
 
-    "usage-forwarding.ts": "b598322906818ebb8f491e3c57e5037ec115fa02c65d079cd15be14c6bdc314e",
+    "usage-forwarding.ts": "57ad2cac02a09a57e623a74485477e363c4c018cc82d3433d30f33ff43fd49b7",
 
-    "usage-webhooks.ts": "2b3f78eb89656d7ef2f59c49e5214fa85add83a20e2e6e266d19b95973f24978",
+    "usage-webhooks.ts": "c99a2e8b0e252cffd561dd5e15126f592f30add05fa9a2de97fd9d0a6421958c",
 
-    "usage.ts": "2c0508b009eac1f8ee73988f60a8807b6317a6f9db3340ee85754cb08b3071df",
+    "usage.ts": "7f318c5672fc1529029f55d46141af1e3b4a1d55c263163c2d382a9525f92820",
 
     "validation.ts": "299d1f6b624a3122734ef24d355100990ef0accb3bd39a685ad9581a352e59a1",
 

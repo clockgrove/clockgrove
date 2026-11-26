@@ -165,7 +165,8 @@ changes. The owner-defaulted `runtime:usage-webhook` grant, delegable in the sam
 registering a usage webhook, which posts a space's usage to an outside host, and registering a
 usage admission hook, which asks an outside host before each model or tool spend; see the
 [usage protocol](usage.md). Neither is implied by `runtime:world-operate`, which sets a space's
-usage budgets and its world mode. A purchase grant or refund from the developer's server needs
+usage budgets and its world mode. A purchase grant or refund from the developer's server, and
+defining an in-world [offer](usage.md#offers) with its checkout link, need
 `runtime:world-purchase`, which a world's owner holds by default and may delegate in the same
 way, and which no other grant implies (`runtime:world-command`, `runtime:world-operate` and
 `runtime:world-clock` never do; an actor or system identity never holds it by ownership)

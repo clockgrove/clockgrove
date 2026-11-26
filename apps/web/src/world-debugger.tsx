@@ -9,6 +9,7 @@ import type {
   RunSummary,
   RunView,
   RunWalk,
+  UsagePage,
 } from "@clockgrove/contracts";
 import { useEffect, useState } from "react";
 import { ApiRefusal } from "./api.js";
@@ -165,6 +166,7 @@ export function WorldDebugger({
       <DebuggerJournal session={session} journal={journal} load={loadJournal} link={link} />
       <DebuggerTimeline session={session} journal={journal} />
       <DebuggerRuns session={session} link={link} />
+      <DebuggerUsage session={session} />
       <DebuggerChecks session={session} />
       <DebuggerActors session={session} scene={scene} link={link} />
     </details>
@@ -452,6 +454,65 @@ function RunDetail({ run }: { readonly run: RunView }) {
       <p>Approvals: {calls("approval")}</p>
       <p>Cost: {cost(run.steps)}</p>
     </div>
+  );
+}
+
+type UsageEvent = UsagePage["events"][number];
+
+/** A usage event's line: what it was, how it ended, its native quantities and who it was for. */
+function usageLine(event: UsageEvent): string {
+  const quantities = Object.entries(event.quantities)
+    .map(([name, value]) => `${name} ${value ?? "unknown"}`)
+    .join(", ");
+  return [
+    `${event.category} ${event.resource ?? ""}`.trim(),
+    event.outcomeCode === null ? event.status : `${event.status} (${event.outcomeCode})`,
+    quantities,
+    `player ${event.principalId}`,
+    `actor ${event.actorId}`,
+    event.occurredAt,
+  ].join(" · ");
+}
+
+/**
+ * The space's usage feed (issue 329) as the developer's code receives it: model and tool calls,
+ * deliveries and offer events, a refusal's outcome and an unknown quantity shown as unknown.
+ */
+function DebuggerUsage({ session }: { readonly session: SceneSession }) {
+  const [events, setEvents] = useState<readonly UsageEvent[]>();
+  const [next, setNext] = useState<string | null>(null);
+  const [refused, setRefused] = useState<string>();
+  const load = (after?: string) => {
+    void session.readUsage(after).then((page) => {
+      if ("refused" in page) return setRefused(page.refused);
+      setRefused(undefined);
+      setEvents((current) =>
+        after !== undefined && current !== undefined ? [...current, ...page.events] : page.events,
+      );
+      setNext(page.next);
+    });
+  };
+  return (
+    <section aria-label="Debugger usage">
+      <h3>Debugger usage</h3>
+      <button type="button" onClick={() => load()}>
+        Load usage
+      </button>
+      {refused !== undefined && <p>Usage refused: {refused}</p>}
+      {events !== undefined && events.length === 0 && <p>No usage recorded.</p>}
+      {events !== undefined && events.length > 0 && (
+        <ol aria-label="Usage events">
+          {events.map((event) => (
+            <li key={event.eventId}>{usageLine(event)}</li>
+          ))}
+        </ol>
+      )}
+      {next !== null && (
+        <button type="button" onClick={() => load(next)}>
+          More usage
+        </button>
+      )}
+    </section>
   );
 }
 

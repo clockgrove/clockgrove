@@ -68,6 +68,7 @@ import {
   decodeUsageWebhookRequest,
   decodeWorldDirectoryRequest,
   decodeWorldModeRequest,
+  decodeWorldOfferRequest,
   type EntitySelection,
   type EntitySelectionRequest,
   encodeFlashback,
@@ -100,6 +101,8 @@ import {
   type WorldDirectory,
   type WorldModeRequest,
   type WorldModeState,
+  type WorldOfferList,
+  type WorldOfferRequest,
   type WorldPersonaId,
   type WorldStatus,
 } from "@clockgrove/contracts";
@@ -318,6 +321,8 @@ export interface RuntimeOwnerBindings {
   >;
   /** Sets the space's mode (0085); needs `runtime:world-operate`. */
   readonly worldModes?: AuditedPort<WorldModeRequest, WorldModeState>;
+  /** Sets or withdraws an offer of the space (0086); needs `runtime:world-purchase`. */
+  readonly worldOffers?: AuditedPort<WorldOfferRequest, WorldOfferList>;
   /** Context manifests and governed actor documents (0037), audited like the run inspector. */
   readonly cognition?: {
     readonly context: AuditedPort<ContextInspectRequest, ContextInspection>;
@@ -633,6 +638,10 @@ export class RuntimeWorker {
     if (request.method === "POST" && url.pathname === "/v1/runtime/world-mode")
       return this.answer("causal_chain_inspection_answered", (note) =>
         this.runRead(request, note, decodeWorldModeRequest, this.bindings.worldModes),
+      );
+    if (request.method === "POST" && url.pathname === "/v1/runtime/offers")
+      return this.answer("causal_chain_inspection_answered", (note) =>
+        this.runRead(request, note, decodeWorldOfferRequest, this.bindings.worldOffers),
       );
     if (request.method === "POST" && url.pathname === "/v1/runtime/context/inspect")
       return this.answer("causal_chain_inspection_answered", (note) =>

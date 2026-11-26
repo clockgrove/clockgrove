@@ -1,4 +1,9 @@
-import type { ShadowDecider } from "./decision-shadow.js";
+import {
+  SHADOW_NO_CALL,
+  SHADOW_USAGE_UNKNOWN,
+  type ShadowDecider,
+  type ShadowUsage,
+} from "./decision-shadow.js";
 import {
   ACTOR_REPLY_CATEGORY_CODES,
   type ActorReplyCategoryCode,
@@ -42,6 +47,11 @@ export interface ActorReplyShadowRecord {
   /** Measured cost; null when unknown. */
   readonly costMicrousd: number | null;
   readonly detail: string | null;
+  /**
+   * The model call's usage, the source of its usage event (issue 329): no call when there was no
+   * decider, unknown when the decider threw or reported none, never zero for an unknown call.
+   */
+  readonly usage: ShadowUsage;
 }
 
 const OPTIONS = {
@@ -95,6 +105,7 @@ export async function judgeActorReply(input: {
       status: "skipped",
       costMicrousd: 0,
       detail: "model-unavailable",
+      usage: SHADOW_NO_CALL,
     };
   try {
     const outcome = await input.decider.pick({
@@ -109,6 +120,7 @@ export async function judgeActorReply(input: {
       model: outcome.model,
       latencyMs: outcome.latencyMs,
       costMicrousd: outcome.costMicrousd,
+      usage: outcome.usage ?? SHADOW_USAGE_UNKNOWN,
     };
     if (outcome.status === "failed")
       return { ...base, ...empty, ...measured, status: "failed", detail: outcome.code };
@@ -130,6 +142,13 @@ export async function judgeActorReply(input: {
       detail: null,
     };
   } catch {
-    return { ...base, ...empty, status: "failed", costMicrousd: null, detail: "decider-error" };
+    return {
+      ...base,
+      ...empty,
+      status: "failed",
+      costMicrousd: null,
+      detail: "decider-error",
+      usage: SHADOW_USAGE_UNKNOWN,
+    };
   }
 }

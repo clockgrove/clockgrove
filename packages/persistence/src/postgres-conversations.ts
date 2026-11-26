@@ -45,6 +45,10 @@ import {
   decodeModerationShadowJudgement,
   decodeOpaqueId,
   type ObjectId,
+  type OfferChoice,
+  type OfferChooseRequest,
+  type OfferList,
+  type OfferShowRequest,
   type PartitionId,
   type SpaceId,
   type TalkCommandOutcome,
@@ -71,6 +75,7 @@ import {
   type TalkRunStart,
 } from "./postgres-runs.js";
 import { type PostgreSqlClient, withClientTransaction } from "./postgres-transaction.js";
+import { worldOfferOf } from "./postgres-usage-admission.js";
 import { worldMode, worldModeRefusesActions } from "./postgres-world-modes.js";
 
 type Row = Record<string, unknown>;
@@ -430,6 +435,60 @@ export class PostgreSqlConversationStore implements ConversationStore {
     sessionId: string,
   ): Promise<void> {
     await this.update(participant, scope, sessionId, "state = $5", "deleted");
+  }
+
+  async showOffers(
+    participant: ConversationParticipant,
+    request: OfferShowRequest,
+  ): Promise<OfferList> {
+    const rows = await this.offerCall(
+      participant,
+      "SELECT * FROM clockgrove.show_offers($1,$2,$3,$4)",
+      request,
+      [],
+    );
+    return { offers: rows.map((row) => ({ ...worldOfferOf(row), chosen: row.chosen === true })) };
+  }
+
+  async chooseOffer(
+    participant: ConversationParticipant,
+    request: OfferChooseRequest,
+  ): Promise<OfferChoice> {
+    const rows = await this.offerCall(
+      participant,
+      "SELECT * FROM clockgrove.choose_offer($1,$2,$3,$4,$5)",
+      request,
+      [request.offerId],
+    );
+    const row = rows[0];
+    if (row === undefined) throw new ConversationRefusedError("offer_not_available");
+    return { offer: { ...worldOfferOf(row), chosen: true }, eventId: String(row.event_id) };
+  }
+
+  /** An offer function (0086) as the session's participant; another's session is not found. */
+  private async offerCall(
+    participant: ConversationParticipant,
+    sql: string,
+    request: OfferShowRequest,
+    extra: readonly unknown[],
+  ): Promise<Row[]> {
+    const { scope, sessionId } = request;
+    try {
+      return await this.transaction(participant, async () => {
+        const result = await this.client.query(sql, [
+          scope.tenantId,
+          scope.worldId,
+          scope.timelineId,
+          sessionId,
+          ...extra,
+        ]);
+        return result.rows as Row[];
+      });
+    } catch (error) {
+      if ((error as { code?: unknown }).code === "42501")
+        throw new ConversationRefusedError("conversation_not_found");
+      throw error;
+    }
   }
 
   async acceptTurn(

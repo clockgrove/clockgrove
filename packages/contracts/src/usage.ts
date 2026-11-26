@@ -13,13 +13,21 @@ import {
 export const MAX_USAGE_PAGE = 100;
 const MAX_SEQUENCE = 2n ** 63n - 1n;
 
-export const USAGE_CATEGORIES = ["model_call", "tool_call", "delivery"] as const;
+export const USAGE_CATEGORIES = [
+  "model_call",
+  "tool_call",
+  "delivery",
+  "offer_shown",
+  "offer_chosen",
+] as const;
 export type UsageCategory = (typeof USAGE_CATEGORIES)[number];
 export const USAGE_SOURCES = [
   "run_step",
   "delivery_receipt",
   "wake_triage",
   "moderation_shadow",
+  "offer_presentation",
+  "actor_reply_shadow",
 ] as const;
 export type UsageSource = (typeof USAGE_SOURCES)[number];
 

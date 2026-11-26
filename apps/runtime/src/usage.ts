@@ -15,6 +15,8 @@ import type {
   UsageWebhookRequest,
   WorldModeRequest,
   WorldModeState,
+  WorldOfferList,
+  WorldOfferRequest,
 } from "@clockgrove/contracts";
 import type { TrustedExecutionContext } from "@clockgrove/contracts/trusted";
 import {
@@ -26,6 +28,7 @@ import {
   PostgreSqlUsageWebhooks,
 } from "@clockgrove/persistence";
 import { INSPECT_GRANT } from "./inspector.js";
+import { mayHoldPurchaseGrant, PURCHASE_GRANT } from "./purchases.js";
 import { usageWebhookSecret } from "./usage-webhooks.js";
 import { assertWorldCommandContext, worldAuthorization } from "./world-commands.js";
 
@@ -51,6 +54,7 @@ export const USAGE_ROUTES = [
   "/v1/runtime/usage/budget",
   "/v1/runtime/usage/admission-hook",
   "/v1/runtime/world-mode",
+  "/v1/runtime/offers",
 ] as const;
 
 /** Setting a budget restricts spend and sends nothing out, so it needs the operator's grant. */
@@ -148,6 +152,32 @@ export class PostgreSqlUsageInspector {
         reason: input.reason,
       }),
     );
+  }
+
+  /**
+   * Sets or withdraws one offer of the space (`world-offer` audit, the entry the offer's ID). It
+   * puts the developer's commerce and checkout link in front of players, so it needs
+   * `runtime:world-purchase` beside the reader's grant, as a purchase does.
+   */
+  async setOffer(
+    input: WorldOfferRequest,
+    context: TrustedExecutionContext,
+  ): Promise<WorldOfferList> {
+    const target: AuditTarget = { subject: "world-offer", entryId: input.offerId };
+    // An offer is the developer's commerce, linked to a checkout host the caller names: the
+    // purchase's grant (owner-held by default, delegable), never the operator's.
+    const authorization = await this.admitted(
+      input,
+      context,
+      [INSPECT_GRANT, PURCHASE_GRANT],
+      (trusted) => {
+        if (!mayHoldPurchaseGrant(trusted))
+          throw new AuthorizationRefusedError("world offer authority refused");
+      },
+    );
+    return this.refusedAsDenied(input, authorization, target, async () => ({
+      offers: await this.admission.setOffer(authorization, input),
+    }));
   }
 
   /**
@@ -253,7 +283,12 @@ export class PostgreSqlUsageInspector {
 type AuditTarget =
   | { readonly subject: "usage-events" }
   | {
-      readonly subject: "usage-webhook" | "usage-budget" | "usage-admission-hook" | "world-mode";
+      readonly subject:
+        | "usage-webhook"
+        | "usage-budget"
+        | "usage-admission-hook"
+        | "world-mode"
+        | "world-offer";
       readonly entryId: string;
     };
 

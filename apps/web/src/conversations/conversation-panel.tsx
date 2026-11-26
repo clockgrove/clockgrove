@@ -20,6 +20,7 @@ import { useEntityRail } from "../scene-state.js";
 import { whyOpener } from "../why.js";
 import { EffectApprovals } from "./effect-approvals.js";
 import { InternalGrants } from "./internal-grants.js";
+import { ConversationOffers } from "./offers.js";
 import { RunDrawer } from "./run-drawer.js";
 import { settledResult, type TurnResult, turnStateLabel } from "./turn-state.js";
 
@@ -590,6 +591,9 @@ export function ConversationPanel({
         </div>
       )}
       {selectedId && <EffectApprovals key={selectedId} session={session} sessionId={selectedId} />}
+      {selectedId && (
+        <ConversationOffers key={`offers:${selectedId}`} session={session} sessionId={selectedId} />
+      )}
       <p className="rw-disclosure">
         {name} is model-backed. This conversation is private to you and never spoken aloud in the
         world.

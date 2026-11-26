@@ -9,6 +9,7 @@ export const USAGE_QUANTITY_NAMES = [
   "reasoningTokens",
   "calls",
   "deliveries",
+  "offers",
 ] as const;
 export type UsageQuantityName = (typeof USAGE_QUANTITY_NAMES)[number];
 

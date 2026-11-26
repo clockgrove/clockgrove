@@ -40,31 +40,35 @@ export function decodeUsageUrlRequest(value: unknown, path: string): UsageWebhoo
   if (v.version !== 1) throw new ContractDecodeError(`${path}.version`, "expected 1");
   const { tenantId, worldId, timelineId, spaceId } = v;
   const scope = decodeBrowserScope({ tenantId, worldId, timelineId, spaceId });
-  let url: string | null = null;
-  if (v.url !== null) {
-    const raw = string(v.url, `${path}.url`);
-    let parsed: URL | undefined;
-    try {
-      parsed = new URL(raw);
-    } catch {
-      parsed = undefined;
-    }
-    // The normalised form is what is stored, posted to and audited, so `HTTPS://x.example` and
-    // `https:x.example` are the same webhook as `https://x.example/`.
-    if (
-      parsed?.protocol !== "https:" ||
-      parsed.username !== "" ||
-      parsed.password !== "" ||
-      !publicHostName(parsed.hostname) ||
-      new TextEncoder().encode(parsed.href).length > MAX_URL_BYTES
-    )
-      throw new ContractDecodeError(
-        `${path}.url`,
-        "expected an https URL to a public host name, of at most 2048 bytes",
-      );
-    url = parsed.href;
-  }
+  const url = v.url === null ? null : decodeOutsideUrl(v.url, `${path}.url`);
   return Object.freeze({ version: 1, scope, url });
+}
+
+/**
+ * An `https` URL to a public host name, at most 2048 bytes, in its normalised form: the form that
+ * is stored, posted to or linked to and audited, so `HTTPS://x.example` and `https:x.example` are
+ * the same URL as `https://x.example/`.
+ */
+export function decodeOutsideUrl(value: unknown, path: string): string {
+  const raw = string(value, path);
+  let parsed: URL | undefined;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    parsed = undefined;
+  }
+  if (
+    parsed?.protocol !== "https:" ||
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    !publicHostName(parsed.hostname) ||
+    new TextEncoder().encode(parsed.href).length > MAX_URL_BYTES
+  )
+    throw new ContractDecodeError(
+      path,
+      "expected an https URL to a public host name, of at most 2048 bytes",
+    );
+  return parsed.href;
 }
 
 /**

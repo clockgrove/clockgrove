@@ -13,6 +13,8 @@ import {
   decodeFlashbackMarks,
   decodeFollowDisposition,
   decodeInfluenceReceipt,
+  decodeOfferChoice,
+  decodeOfferList,
   decodeRecordedWhy,
   decodeRunWalk,
   decodeSayReceipt,
@@ -41,6 +43,7 @@ import {
   type SpaceId,
   type TalkReceipt,
   TERMINAL_TURN_PHASES,
+  type UsagePage,
   type WorldDirectory,
   type WorldDirectoryEntry,
   type WorldReadiness,
@@ -125,7 +128,10 @@ type ConversationEndpoint =
   | "/v1/runtime/runs/search"
   | "/v1/runtime/turns/cancel"
   | "/v1/runtime/activations/inspect"
-  | "/v1/runtime/activations/configure";
+  | "/v1/runtime/activations/configure"
+  | "/v1/runtime/conversations/offers"
+  | "/v1/runtime/conversations/offers/choose"
+  | "/v1/runtime/usage/query";
 
 export interface InternalGrant {
   readonly capability: string;
@@ -1471,6 +1477,35 @@ export class SceneSession {
       { sessionId, ...(afterSequence ? { afterSequence } : {}) },
       decodeConversationTranscript,
     );
+  }
+  /** The session actor's offers; asking records each as shown (issue 329). */
+  showOffers(sessionId: string) {
+    return this.conversationCall(
+      "/v1/runtime/conversations/offers",
+      { sessionId },
+      decodeOfferList,
+    );
+  }
+  /** Records the choice of an offer shown in the session; checkout stays the developer's. */
+  chooseOffer(sessionId: string, offerId: string) {
+    return this.conversationCall(
+      "/v1/runtime/conversations/offers/choose",
+      { sessionId, offerId },
+      decodeOfferChoice,
+    );
+  }
+  /**
+   * One page of the space's usage feed, oldest first after `after` (issue 329): the owner's
+   * `runtime:world-inspect` and `operator_evidence`, which the server checks.
+   */
+  async readUsage(after?: string): Promise<UsagePage | { readonly refused: string }> {
+    const answer = await this.postInteraction("/v1/runtime/usage/query", {
+      limit: 100,
+      ...(after === undefined ? {} : { after }),
+    });
+    const page = answer.body as UsagePage | undefined;
+    if (answer.status !== 200 || !Array.isArray(page?.events)) return { refused: answer.refused };
+    return page;
   }
   inspectConversationRun(sessionId: string, messageId: string) {
     return this.conversationCall(

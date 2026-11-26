@@ -186,6 +186,19 @@ async function ownsThePlayground(journey, scratch) {
   expect(await preview.getByRole("listitem").allTextContents()).toEqual([
     "playground.weather-upgrade@1/playground.clear-sky (world.weather.set v2)",
   ]);
+  at.step = "the developer offers an upgrade through the rock";
+  const offered = await post("/v1/runtime/offers", {
+    version: 1,
+    ...scopeOf(entry),
+    offerId: "rock-polish",
+    offer: {
+      actorId: "playground.rock",
+      title: "Polished rock",
+      text: "A shinier rock for the yard.",
+      checkoutUrl: "https://shop.example/checkout",
+    },
+  });
+  expect(offered.status).toBe(200);
   at.step = "Talk to the rock";
   await page.getByRole("button", { name: "playground.rock", exact: true }).press("Enter");
   await page.getByRole("button", { name: "Talk", exact: true }).click();
@@ -195,6 +208,15 @@ async function ownsThePlayground(journey, scratch) {
   const history = page.getByRole("list", { name: "Conversation history" });
   await history.getByText(/Scripted fixture reply/u).waitFor({ timeout: 60_000 });
   expect(await history.getByRole("listitem").count()).toBe(2);
+  at.step = "the rock's conversation shows the offer, and checkout stays the developer's";
+  const offers = page.getByRole("region", { name: "Offers", exact: true });
+  await offers.getByText("A shinier rock for the yard.", { exact: true }).waitFor();
+  await offers.getByRole("button", { name: "Choose Polished rock", exact: true }).click();
+  const checkout = offers.getByRole("link", { name: "Continue to checkout", exact: true });
+  await checkout.waitFor();
+  expect(await checkout.getAttribute("href")).toMatch(
+    /^https:\/\/shop\.example\/checkout\?clockgrove_choice=offer_chosen%3A[0-9a-f]{64}$/u,
+  );
   await debugsThePlayground(page, post, entry);
   at.step = "a coding agent asks over the playground's MCP server";
   await asksOverMcp(journey);
@@ -431,6 +453,20 @@ async function debugsThePlayground(page, post, entry) {
     ],
     ["Model calls: 1", "Tool calls: 0", "Approvals: 0", "Cost: $0.000000"],
   ]);
+  // The usage the developer's code receives: the Talk's model call and the offer shown and chosen.
+  const usage = page.getByRole("region", { name: "Debugger usage", exact: true });
+  await usage.getByRole("button", { name: "Load usage", exact: true }).click();
+  const used = usage.getByRole("list", { name: "Usage events" });
+  await used.waitFor();
+  const lines = await used.getByRole("listitem").allTextContents();
+  const count = (pattern) => lines.filter((line) => pattern.test(line)).length;
+  expect([
+    count(/^model_call \S+ · succeeded · .*calls 1.* · actor playground\.rock · /u),
+    count(/^offer_shown rock-polish · shown · offers 1 · player \S+ · actor playground\.rock · /u),
+    count(
+      /^offer_chosen rock-polish · chosen · offers 1 · player \S+ · actor playground\.rock · /u,
+    ),
+  ]).toEqual([1, 1, 1]);
   const checks = page.getByRole("region", { name: "Debugger checks", exact: true });
   await checks.getByRole("button", { name: "Load checks", exact: true }).click();
   await checks.getByText("Checks: passed", { exact: true }).waitFor();
@@ -590,3 +626,8 @@ it("serves a pack named with --pack, without a shell of its own, as a fresh worl
     await rm(scratch, { recursive: true, force: true });
   }
 }, 720_000);
+
+/** The four scope fields of a world directory entry. */
+function scopeOf({ tenantId, worldId, timelineId, spaceId }) {
+  return { tenantId, worldId, timelineId, spaceId };
+}

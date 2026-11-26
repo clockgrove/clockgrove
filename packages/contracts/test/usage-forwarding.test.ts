@@ -73,3 +73,27 @@ it("maps one usage event to Stripe, CloudEvents and Lago bodies without inventin
     "player-1",
   ]);
 });
+
+it("meters an offer event's `offers` quantity through the Stripe helper", async () => {
+  const chosen: UsageEvent = {
+    ...event,
+    eventId: "offer_chosen:abc",
+    category: "offer_chosen",
+    source: "offer_presentation",
+    resource: "lantern",
+    status: "chosen",
+    runId: null,
+    rootRunId: null,
+    quantities: { offers: 1 },
+  };
+  expect(
+    await toStripeMeterEvents(chosen, { customer: "cus_1", meters: { offers: "offers" } }),
+  ).toEqual([
+    {
+      event_name: "offers",
+      identifier: createHash("sha256").update("offer_chosen:abc:offers").digest("hex"),
+      timestamp: 1_795_168_800,
+      payload: { stripe_customer_id: "cus_1", value: "1" },
+    },
+  ]);
+});
