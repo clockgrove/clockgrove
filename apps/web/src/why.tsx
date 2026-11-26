@@ -56,6 +56,7 @@ export function RecordedWhyPanel({ session }: { readonly session: SceneSession }
       </button>
       {value && (
         <>
+          {/* #464: one space apart, as the shell's other inline button pairs are. */}{" "}
           <button
             type="button"
             data-flashback-opener={`why:${value.commandId}`}
