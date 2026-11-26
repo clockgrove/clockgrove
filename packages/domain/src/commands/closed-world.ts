@@ -28,6 +28,9 @@ const CREATES_RESOURCE: Readonly<Record<ContainmentCommandType, Refusal | null>>
   "resource.transfer": null,
   "surface.interact": null,
   "surface.repair": null,
+  // A purchase's grant is an outside cause the journal records; a refund removes.
+  "purchase.grant": null,
+  "purchase.refund": null,
 };
 
 /**

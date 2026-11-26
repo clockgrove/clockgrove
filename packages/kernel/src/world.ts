@@ -19,6 +19,7 @@ import {
   type CrossingRecord,
   classifyRainChange,
   closedWorldRefusal,
+  purchaseCommandId,
   coverIntervals,
   createWorldState,
   currentInside,
@@ -4620,6 +4621,23 @@ function runContainmentCommand(
     case "resource.transfer":
       emit({ type: "resource.transferred", payload: withoutVersion(payload) });
       break;
+    case "purchase.grant":
+      emit({ type: "resource.purchase-granted", payload: withoutVersion(payload) });
+      break;
+    case "purchase.refund": {
+      // A refund removes what is left of the grant in its holder: never more, never below zero.
+      const p = payload as ContainmentPayload<"purchase.refund">;
+      const holder = state.entities.find((entity) => entity.objectId === p.objectId);
+      const left =
+        holder !== undefined && active(holder) && holder.resource?.kind === p.kind
+          ? holder.resource.quantity
+          : 0;
+      emit({
+        type: "resource.purchase-refunded",
+        payload: { ...(withoutVersion(payload) as object), quantity: Math.min(p.quantity, left) },
+      });
+      break;
+    }
   }
   const final = context.workingState();
   // A retired object leaves no keyed dwell behind.
@@ -5412,6 +5430,8 @@ function registerContainmentChecks(
     "boundary.exchange": ["boundary.departed", "resource.boundary-exchanged", "boundary.returned"],
     "surface.interact": ["surface.interacted"],
     "surface.repair": ["surface.repaired"],
+    "purchase.grant": ["resource.purchase-granted"],
+    "purchase.refund": ["resource.purchase-refunded"],
     "object.create": [
       "object.created",
       "needs.changed",
@@ -5550,8 +5570,21 @@ function registerContainmentChecks(
     registerPre("resource.closed-world", ({ payload, command }) =>
       closedWorldRefusal({ type: command.type, payload }),
     ),
+    // One purchase id is one journal command ID, so the journal's command identity grants it once.
+    registerPre("resource.purchase-identity", ({ payload, command }) =>
+      (command.type === "purchase.grant" || command.type === "purchase.refund") &&
+      command.commandId !==
+        purchaseCommandId(
+          command.type,
+          (payload as ContainmentPayload<"purchase.grant">).purchaseId,
+        )
+        ? "commandId"
+        : undefined,
+    ),
     registerPre("containment.fixture-and-references", ({ state, payload, input, command }) => {
       if (input.continuation !== undefined) return "continuation";
+      // A refund of a holder since retired removes nothing; it is still recorded.
+      if (command.type === "purchase.refund") return undefined;
       if (command.type === "resource.transfer")
         return transferReferencePath(state, payload as ContainmentPayload<"resource.transfer">);
       const p = payload as Record<string, unknown>;
@@ -5634,6 +5667,14 @@ function registerContainmentChecks(
       return undefined;
     }),
     registerPre("resource.available-and-bounded", ({ state, payload, command }) => {
+      if (command.type === "purchase.grant") {
+        const p = payload as ContainmentPayload<"purchase.grant">;
+        const holder = state.entities.find((entity) => entity.objectId === p.objectId)!;
+        if (holder.resource?.kind !== p.kind) return "payload.kind";
+        return holder.resource.quantity > Number.MAX_SAFE_INTEGER - p.quantity
+          ? "payload.quantity"
+          : undefined;
+      }
       if (!command.type.startsWith("resource.")) return undefined;
       if (command.type === "resource.transfer")
         return transferAvailablePath(state, payload as ContainmentPayload<"resource.transfer">);
@@ -5655,10 +5696,14 @@ function registerContainmentChecks(
     registerPre("resource.perishable-single-batch", ({ state, payload, command }) => {
       if (command.type === "resource.transfer")
         return transferBatchPath(state, payload as ContainmentPayload<"resource.transfer">);
-      if (command.type !== "resource.offer" && command.type !== "resource.transfer")
+      if (
+        command.type !== "resource.offer" &&
+        command.type !== "resource.transfer" &&
+        command.type !== "purchase.grant"
+      )
         return undefined;
       const p = payload as { objectId?: string; toObjectId?: string };
-      const offer = command.type === "resource.offer";
+      const offer = command.type === "resource.offer" || command.type === "purchase.grant";
       const id = offer ? p.objectId : p.toObjectId;
       if (state.ecology?.perishables.some((entry) => entry.objectId === id) !== true)
         return undefined;
@@ -5823,6 +5868,15 @@ function registerContainmentChecks(
                 changeHolder(event.payload.objectId, "food", quantity);
               }
               break;
+            case "resource.purchase-granted":
+            case "resource.purchase-refunded": {
+              const delta =
+                BigInt(event.payload.quantity) *
+                (event.type === "resource.purchase-granted" ? 1n : -1n);
+              changes[event.payload.kind]! += delta;
+              changeHolder(event.payload.objectId, event.payload.kind, delta);
+              break;
+            }
             case "resource.boundary-exchanged": {
               const delta =
                 BigInt(event.payload.quantity) * (event.payload.direction === "import" ? 1n : -1n);

@@ -76,3 +76,102 @@ it("refuses unbacked runtime inventory and legacy source packs", async () => {
     error: { code: "invalid-input", path: "pack.pack.policy.ecology.sources" },
   });
 });
+
+it("grants a purchase once under its own command ID and records a refund as a bounded removal", async () => {
+  const world = withFixtureInventory(await containmentFixture(), [
+    { objectId: "store", kind: "food", quantity: 3 },
+    { objectId: "bowl", kind: "food", quantity: 0 },
+  ]);
+  const grant = {
+    schemaVersion: 1,
+    purchaseId: "cs_test_1",
+    principalId: "player-7",
+    objectId: "bowl",
+    kind: "food",
+    quantity: 2,
+  };
+  expect(
+    executeWorldKernel(containmentInput(world, "purchase.grant", grant, "purchase:cs_test_2"), {
+      mode: "test",
+    }),
+  ).toMatchObject({
+    ok: false,
+    error: {
+      code: "precondition-failed",
+      check: "resource.purchase-identity@1",
+      path: "commandId",
+    },
+  });
+  expect(
+    executeWorldKernel(
+      containmentInput(world, "purchase.grant", { ...grant, kind: "water" }, "purchase:cs_test_1"),
+      { mode: "test" },
+    ),
+  ).toMatchObject({ ok: false, error: { code: "precondition-failed", path: "payload.kind" } });
+  const granted = executeWorldKernel(
+    containmentInput(world, "purchase.grant", grant, "purchase:cs_test_1"),
+    { mode: "test" },
+  );
+  if (!granted.ok) throw new Error(JSON.stringify(granted.error));
+  expect(granted.result.events.map(({ type, payload }) => ({ type, payload }))).toEqual([
+    {
+      type: "resource.purchase-granted",
+      payload: {
+        purchaseId: "cs_test_1",
+        principalId: "player-7",
+        objectId: "bowl",
+        kind: "food",
+        quantity: 2,
+      },
+    },
+  ]);
+  expect(granted.result.state.entities.map((entity) => entity.resource?.quantity)).toEqual([2, 3]);
+  expect(
+    reduceWorldEvent(world.partition.state, granted.result.events[0] as never).entities.map(
+      (entity) => entity.resource?.quantity,
+    ),
+  ).toEqual([2, 3]);
+  // A journaled grant must account for exactly the material the holder gained.
+  expect(
+    checkWorldInvariants(world.partition.state, granted.result.state, [
+      { ...granted.result.events[0], payload: { ...grant, quantity: 3 } },
+    ] as never),
+  ).toMatchObject({ code: "invariant-violated" });
+  const after = (state: typeof world.partition.state) => ({
+    ...world,
+    partition: { ...world.partition, state, revision: state.revision },
+  });
+  const eaten = executeWorldKernel(
+    containmentInput(after(granted.result.state), "resource.consume", {
+      schemaVersion: 1,
+      objectId: "bowl",
+      kind: "food",
+      quantity: 1,
+    }),
+    { mode: "test" },
+  );
+  if (!eaten.ok) throw new Error(JSON.stringify(eaten.error));
+  const refunded = executeWorldKernel(
+    containmentInput(
+      after(eaten.result.state),
+      "purchase.refund",
+      grant,
+      "purchase-refund:cs_test_1",
+    ),
+    { mode: "test" },
+  );
+  if (!refunded.ok) throw new Error(JSON.stringify(refunded.error));
+  expect(refunded.result.events.map(({ type, payload }) => ({ type, payload }))).toEqual([
+    {
+      type: "resource.purchase-refunded",
+      payload: {
+        purchaseId: "cs_test_1",
+        principalId: "player-7",
+        objectId: "bowl",
+        kind: "food",
+        quantity: 1,
+      },
+    },
+  ]);
+  expect(refunded.result.state.entities.map((entity) => entity.resource?.quantity)).toEqual([0, 3]);
+});
