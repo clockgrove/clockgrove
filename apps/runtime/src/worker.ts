@@ -175,6 +175,7 @@ import {
   storedNoOpOutcome,
 } from "./owners.js";
 import {
+  mayHoldPurchaseGrant,
   PURCHASE_GRANT,
   purchaseCommand,
   purchaseReceipt,
@@ -972,7 +973,8 @@ export class RuntimeWorker {
 
   /**
    * A purchase grant or refund from the developer's server (issue 329): the server builds the
-   * `purchase.grant` / `purchase.refund` command under `runtime:world-purchase`, its command ID the
+   * `purchase.grant` / `purchase.refund` command under `runtime:world-purchase` (the world's owner's
+   * by default, delegable; never an actor's or a system identity's), its command ID the
    * purchase id's, so the journal grants a purchase once and a retry replays its receipt. A refused
    * caller writes no receipt, so no one can take a purchase id. A refund needs the purchase's
    * committed grant with the same fields. No world mode refuses either: they record the developer's
@@ -1099,6 +1101,8 @@ export class RuntimeWorker {
       }
       if (input.mcpClientId !== undefined && context.personaId === undefined)
         throw new AuthorizationRefusedError("world persona required");
+      if (options.grant === PURCHASE_GRANT && !mayHoldPurchaseGrant(context))
+        throw new AuthorizationRefusedError("an actor or system identity never grants a purchase");
       note.authorization = "authorized";
       // A read-only or paused world takes no command but its clock's controls (0085).
       if (

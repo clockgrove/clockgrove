@@ -71,7 +71,12 @@ import {
 import { decodeResource } from "@clockgrove/world-pack-sdk";
 import { OwnerMailboxError, type OwnerMailboxRefusal } from "./mailbox.js";
 import { StoredRejectionError } from "./owners.js";
-import { isPurchaseCommandId, PURCHASE_COMMAND_TYPES, PURCHASE_GRANT } from "./purchases.js";
+import {
+  isPurchaseCommandId,
+  mayHoldPurchaseGrant,
+  PURCHASE_COMMAND_TYPES,
+  PURCHASE_GRANT,
+} from "./purchases.js";
 import {
   RuntimeEpochConflictError,
   type RuntimeEpochs,
@@ -924,7 +929,8 @@ export class PostgreSqlCommandOwner {
 /**
  * Clock controls need their own grant, and so does an owner's surface repair (issue 267): it zeroes
  * a zone and clears its marks, so it is the world owner's right, `runtime:world-repair`.
- * `runtime:world-command` alone never allows either. A purchase needs `runtime:world-purchase`.
+ * `runtime:world-command` alone never allows either. A purchase needs `runtime:world-purchase`
+ * (a world's owner's by default, delegable; never an actor's or a system identity's).
  */
 export function worldCommandGrant(input: WorldCommandInput): string {
   if (isClockCommand(input.command.type)) return "runtime:world-clock";
@@ -943,7 +949,8 @@ export function assertWorldCommandContext(
     context.timelineId !== scope.timelineId ||
     context.spaceId !== scope.spaceId ||
     context.worldMembershipId === undefined ||
-    !context.grants.includes(decodeOpaqueId(grant, "GrantRef"))
+    !context.grants.includes(decodeOpaqueId(grant, "GrantRef")) ||
+    (grant === PURCHASE_GRANT && !mayHoldPurchaseGrant(context))
   )
     throw new AuthorizationRefusedError("world command scope or authority refused");
 }

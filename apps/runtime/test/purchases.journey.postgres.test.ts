@@ -61,7 +61,8 @@ it.skipIf(!isNativeWorldOwnerChild())(
       const count = (where: string) =>
         owner.sql(`SELECT count(*)::text FROM clockgrove.command_receipts WHERE ${where}`);
 
-      // Granting is its own right: a member without it is refused and the purchase id stays free.
+      // Granting is its own right: a member without it (and not the owner) is refused and the
+      // purchase id stays free.
       expect(await purchase("grant")).toMatchObject({
         status: 403,
         body: { error: "authorization_refused" },
@@ -74,9 +75,11 @@ it.skipIf(!isNativeWorldOwnerChild())(
           type: "purchase.grant",
         }),
       ).toMatchObject({ status: 400, body: { error: "invalid_world_command" } });
+      // A world's owner holds the grant by default: made the owner, with no explicit grant, the
+      // developer's server grants purchases.
       await owner.sql(
         `UPDATE clockgrove.world_memberships
-            SET grants = grants || ARRAY['runtime:world-purchase', 'runtime:world-operate']
+            SET roles = ARRAY['owner'], grants = grants || ARRAY['runtime:world-operate']
           WHERE principal_id = 'principal-outsider'`,
       );
 
@@ -150,6 +153,28 @@ it.skipIf(!isNativeWorldOwnerChild())(
         ),
       ).toBe("resource.purchase-granted,resource.purchase-refunded");
       expect(await count("command_id LIKE 'purchase%'")).toBe("2");
+
+      // An actor never grants a purchase by ownership, even holding the grant explicitly, and its
+      // refusal leaves the purchase id free.
+      await owner.sql(
+        `UPDATE clockgrove.world_memberships
+            SET roles = ARRAY['owner', 'actor'],
+                grants = grants || ARRAY['runtime:world-purchase']
+          WHERE principal_id = 'principal-outsider'`,
+      );
+      expect(await purchase("grant", { purchaseId: "cs_test_2" })).toMatchObject({
+        status: 403,
+        body: { error: "authorization_refused" },
+      });
+      expect(await count("command_id = 'purchase:cs_test_2'")).toBe("0");
+      // The owner delegates it: a member holding `runtime:world-purchase` grants a purchase.
+      await owner.sql(
+        `UPDATE clockgrove.world_memberships SET roles = ARRAY['member']
+          WHERE principal_id = 'principal-outsider'`,
+      );
+      expect(
+        decodePurchaseReceipt((await purchase("grant", { purchaseId: "cs_test_2" })).body),
+      ).toMatchObject({ commandId: "purchase:cs_test_2", status: "committed", quantity: 2 });
     });
   },
   180_000,

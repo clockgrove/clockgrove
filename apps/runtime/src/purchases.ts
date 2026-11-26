@@ -11,9 +11,25 @@ import type { PreparedCommandFields, WorldCommandInput } from "./world-commands.
 
 /**
  * The grant a purchase needs (`docs/protocols/usage.md`, "Purchase grants"). It puts material into
- * the world from outside it, so no other grant implies it, and no one holds it until it is given.
+ * the world from outside it, so no other grant implies it. A world's owner holds it by default and
+ * may delegate it, as `runtime:usage-webhook` and `runtime:mcp-install` (the owner's decision of
+ * 2026-11-26); an actor or system identity never qualifies by ownership
+ * (`PostgreSqlWorldAuthorizationReader`).
  */
 export const PURCHASE_GRANT = "runtime:world-purchase";
+
+/**
+ * Whether the caller's identity may grant or refund a purchase at all: an actor or system identity
+ * never may, even holding `runtime:world-purchase` explicitly, as `holdsUsageWebhookGrant`.
+ */
+export function mayHoldPurchaseGrant(
+  context: Readonly<{ principalId: string; roles: readonly string[] }>,
+): boolean {
+  return (
+    !context.roles.map(String).includes("actor") &&
+    !String(context.principalId).startsWith("system:")
+  );
+}
 
 /** The purchase commands, which only `POST /v1/runtime/purchases` builds. */
 export const PURCHASE_COMMAND_TYPES: readonly string[] = ["purchase.grant", "purchase.refund"];

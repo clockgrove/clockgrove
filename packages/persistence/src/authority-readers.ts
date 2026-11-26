@@ -95,6 +95,14 @@ export class PostgreSqlManagementReaders
   }
 }
 
+/**
+ * The grants a world's owner holds by default and may delegate: `runtime:mcp-install` (0046) and
+ * `runtime:world-purchase` (the owner's decision of 2026-11-26 on issue 329: purchases are the
+ * developer's own commerce, and the world's owner is the developer). An actor or system identity
+ * never gains them by ownership.
+ */
+const OWNER_DEFAULT_GRANTS = ["runtime:mcp-install", "runtime:world-purchase"] as const;
+
 /** Reads only committed participation with exact transaction-local scope and forced RLS. */
 export class PostgreSqlWorldAuthorizationReader implements WorldAuthorizationPort {
   constructor(private readonly client: PostgreSqlClient) {}
@@ -136,7 +144,7 @@ export class PostgreSqlWorldAuthorizationReader implements WorldAuthorizationPor
               typeof row.principal_id === "string" &&
               !row.principal_id.startsWith("system:") &&
               Array.isArray(row.grants)
-              ? [...new Set([...row.grants, "runtime:mcp-install"])]
+              ? [...new Set([...row.grants, ...OWNER_DEFAULT_GRANTS])]
               : row.grants,
             "GrantRef",
           ),

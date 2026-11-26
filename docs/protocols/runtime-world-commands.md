@@ -144,7 +144,8 @@ resume a paused clock.
 Execution requires committed participation in the requested world and `runtime:world-command`;
 clock controls require `runtime:world-clock` instead, and an owner's surface repair
 (`surface.repair`) `runtime:world-repair`. A purchase's `purchase.grant` and `purchase.refund`
-are built only by `POST /v1/runtime/purchases` under `runtime:world-purchase`; this route refuses
+are built only by `POST /v1/runtime/purchases` under `runtime:world-purchase` (a world's owner
+holds it by default and may delegate it); this route refuses
 both types and the `purchase:` and `purchase-refund:` command IDs ([purchase
 grants](usage.md#purchase-grants)). No one of these grants implies another.
 Workspace administration, workspace grants and `runtime:no-op` never grant physical mutation.

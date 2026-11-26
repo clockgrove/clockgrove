@@ -407,8 +407,12 @@ It answers `200` with the receipt
   not taken back from elsewhere); the receipt's `quantity` and the event's are what it removed, 0
   when nothing is left. A refund needs the purchase's committed grant with the same fields, else
   `409 purchase_not_granted`. Why shows a removal as `"cause": "refund"`.
-- **Authority.** A purchase needs `runtime:world-purchase`, which no other grant implies and no
-  one holds until it is given ([capabilities](capabilities.md)). A refused caller gets `403` and no
+- **Authority.** A purchase needs `runtime:world-purchase`. A world's owner holds it by default
+  and may delegate it, as `runtime:usage-webhook` and `runtime:mcp-install`: purchases are the
+  developer's own commerce, and the world's owner is the developer. No other grant implies it
+  (`runtime:world-command`, `runtime:world-operate` and `runtime:world-clock` never do), and an
+  actor or system identity never holds it by ownership ([capabilities](capabilities.md)). A
+  refused caller gets `403` and no
   receipt is written, so no one can take a purchase id before the developer's server.
   `POST /v1/runtime/commands` refuses both command types and their command IDs (`400
   invalid_world_command`), and an actor's `world.command` cannot name them (the kernel's ID pairing).
