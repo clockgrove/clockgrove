@@ -274,11 +274,10 @@ export async function runNativeWorldOwnerProcess(
               },
             );
             if (!inheritOutput) process.stdout.write(result.stdout + result.stderr);
-            // An echoed child's output is already in the log in full; the message keeps its end,
-            // where Vitest reports the failed test.
-            const failure = inheritOutput ? result.stderr.slice(-16_384) : result.stderr;
-            expect(result.error, failure).toBeUndefined();
-            expect(result.status, failure).toBe(0);
+            // An echoed child's output is already in the log in full; `ownedSubprocess` returns
+            // only its last 16 KiB, where Vitest reports the failed test.
+            expect(result.error, result.stderr).toBeUndefined();
+            expect(result.status, result.stderr).toBe(0);
           }, connections);
           expect(
             await truthOf(fixture)(

@@ -35,8 +35,10 @@ export function withoutSubprocessCancellation(operation) {
 // Return observations only after pipes and the directly owned child have closed. On the deadline,
 // `stopSignal` goes to the child's process group, then SIGKILL after `killGraceMs`; `timedOut`
 // says the deadline, not an abort or the output cap, stopped it. `echo` writes each chunk of the
-// child's output to this process's own stream as it arrives and still returns it, so a long child
-// is followed live and its stderr can name its failure (`inherit` returns no output).
+// child's output to this process's own stream as it arrives and returns only the last `echoTail`
+// characters of each stream, so a long child is followed live and its stderr can name its failure
+// (`inherit` returns no output). Like `inherit`, echoed output keeps no more than that tail in
+// memory and is not counted against `maxBuffer`.
 export async function ownedSubprocess(executable, args, options = {}) {
   const {
     cwd,
@@ -44,6 +46,7 @@ export async function ownedSubprocess(executable, args, options = {}) {
     input,
     inherit = false,
     echo = false,
+    echoTail = 16 * 1024,
     timeoutMs = 30_000,
     killGraceMs = 1_000,
     maxBuffer = 128 * 1024 * 1024,
@@ -97,17 +100,21 @@ export async function ownedSubprocess(executable, args, options = {}) {
     if (signal?.aborted) cancel();
     const collect = (stream, append) => {
       stream?.setEncoding("utf8").on("data", (chunk) => {
+        if (echo) return append(chunk);
         bytes += Buffer.byteLength(chunk);
         if (bytes > maxBuffer) cancel("ENOBUFS");
         else append(chunk);
       });
     };
+    // An echoed stream is already in this process's log; keep a bounded tail of it, trimmed once
+    // it doubles so a long session costs amortized constant work per chunk.
+    const tail = (kept) => (echo && kept.length > 2 * echoTail ? kept.slice(-echoTail) : kept);
     collect(child.stdout, (chunk) => {
-      stdout += chunk;
+      stdout = tail(stdout + chunk);
       if (echo) process.stdout.write(chunk);
     });
     collect(child.stderr, (chunk) => {
-      stderr += chunk;
+      stderr = tail(stderr + chunk);
       if (echo) process.stderr.write(chunk);
     });
     child.on("error", (cause) => {
@@ -132,8 +139,8 @@ export async function ownedSubprocess(executable, args, options = {}) {
         signal: childSignal,
         error,
         timedOut,
-        stdout,
-        stderr,
+        stdout: echo ? stdout.slice(-echoTail) : stdout,
+        stderr: echo ? stderr.slice(-echoTail) : stderr,
       });
     });
     if (input !== undefined) child.stdin.end(input);
