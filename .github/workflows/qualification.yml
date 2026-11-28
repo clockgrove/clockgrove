@@ -121,7 +121,7 @@ jobs:
 
       - name: Retain qualification evidence
         if: ${{ always() && !cancelled() && steps.evidence.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qualification-evidence
           path: ${{ runner.temp }}/qualification-evidence
@@ -130,7 +130,7 @@ jobs:
 
       - name: Retain Wave 2 evidence
         if: ${{ always() && !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wave2-evidence
           path: ${{ runner.temp }}/wave2-evidence
@@ -180,7 +180,7 @@ jobs:
           --out "$RUNNER_TEMP/wave2-manifest"
 
       - name: Retain the Wave 2 evidence manifest
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wave2-evidence-manifest
           path: ${{ runner.temp }}/wave2-manifest
@@ -217,7 +217,7 @@ jobs:
 
       - name: Retain Wave 1 long-run evidence
         if: ${{ always() && !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wave1-long-run-evidence
           path: ${{ runner.temp }}/wave1-long-runs
@@ -262,7 +262,7 @@ jobs:
 
       - name: Retain Wave 3 load-curve evidence
         if: ${{ always() && !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wave3-load-curve-evidence
           path: ${{ runner.temp }}/wave3-load-curve-evidence
@@ -312,7 +312,7 @@ jobs:
           --out "$RUNNER_TEMP/wave1-manifest"
 
       - name: Retain the Wave 1 evidence manifest
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wave1-evidence-manifest
           path: ${{ runner.temp }}/wave1-manifest
@@ -363,7 +363,7 @@ jobs:
           --out "$RUNNER_TEMP/wave3-manifest"
 
       - name: Retain the Wave 3 evidence manifest
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wave3-evidence-manifest
           path: ${{ runner.temp }}/wave3-manifest
